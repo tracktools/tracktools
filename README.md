@@ -94,7 +94,7 @@ ssrv = SSRV(gwf = gwf, mpsim = mpsim)
 print(ssrv)
 ```
 <p align="center">
-<img src="assets/print_ssrv.png" width="500" height="130" align="center">
+<img src="assets/ssrv_class.png" width="500" height="130" align="center">
 </p>
 
 ```python
@@ -107,5 +107,5 @@ mr_df = ssrv.compute_mixing_ratio(agg_dic, filled = True) * 100
 ```
 
 <p align="center">
-<img src="assets/mr_results.png" width="800" height="400" align="center">
+<img src="assets/mixing_ratios.png" width="800" height="400" align="center">
 </p>
