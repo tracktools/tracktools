@@ -41,7 +41,6 @@ The *Windows* version of these executables are available in the `exe/` folder.
 # ---- Import packages
 import os
 import flopy
-from shapely.geometry import Point
 from vulnerability import ParticleBuilder, ParticleMerger
 
 # ---- Initiate ParticleBuilder instance (drain)

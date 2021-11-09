@@ -126,27 +126,9 @@ for inter_id in inter_list:
 # -- Create heterogenous hydraulic conditivity field using Unconditional
 #     Sequence Gaussian Simulation with an exponential variogram with 500m range
 
-# -- Build grid
-gx = np.arange(xll, ncol*delc, delc) 
-gy = np.arange(yll, nrow*delr, delr)
-
-# -- Build variogram
+# -- Build variogram model
 vgm = gs.Exponential(dim=2, var=0.1, len_scale=500, Nugget=0, anis=1.)
-srf = gs.SRF(vgm, mean=1e-4, seed=50)
-logk = srf.structured([gx, gy]).transpose() + 4.2
-k = np.power(10,-logk)
-
-# -- Build raster from array
-k_ras = flopy.utils.Raster(array = k.reshape(1,nrow,ncol),
-                           transform = from_origin(xll,yll,delc,delr),
-                           bands = (1,), crs=None, nodataval=None)
-'''
-# ---- Plot generated k
-plt.imshow(k)
-plt.title('Hydraulic conductivity $(m/s)$', fontsize=10)
-plt.colorbar()
-plt.show()
-'''
+srf = gs.SRF(vgm, mean=0, seed=50)
 
 #------------------------------------------------------------------------------------------------------
 # ----  PART 3 : BUILD AND RUN MODFLOW6 MODEL
@@ -187,7 +169,9 @@ ic = flopy.mf6.ModflowGwfic(gwf, strt=30)
 
 # ---- NPF package (Node Property Flow)
 xc, yc, zc = map(np.array, gwf.modelgrid.xyzcellcenters)
-k = k_ras.resample_to_grid(xc, yc, band = 1)
+logk = srf.unstructured([xc, yc]) + 4.2
+k = np.power(10,-logk)
+
 npf = flopy.mf6.ModflowGwfnpf(gwf,   icelltype  = 0,           
                                      k          = k,
                                      save_flows = True,
