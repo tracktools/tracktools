@@ -1,5 +1,7 @@
 import os
 import numpy as np
+import warnings
+
 
 try : 
     import pandas as pd
@@ -7,12 +9,12 @@ except ImportError :
     print('Could not load pandas...')
 
 
-# TODO : get model grid cell resolution to infer relevant distance
-# TODO : export seeded points to shapefile
-# TODO : manage river ids 
-# TODO : read group ids from mpsim
+# TODO : get model grid cell resolution to infer relevant distance (Pierre, done)
+# TODO : export seeded points to shapefile (Pierre, done)
+# TODO : manage river ids (Pierre, done)
+# TODO : read group ids from mpsim (Alex, done)
 # TODO : check structured grid support 
-# TODO : check generation from geometries 
+# TODO : check generation from geometries (Pierre)
 
 class ParticleGenerator():
     """ 
@@ -20,7 +22,6 @@ class ParticleGenerator():
     Generates particles around features 
     for a given set of features (geometries or shapefile items)
     and a groundwater flow model (ModflowGwf instance)
-
     Methods
     -----------
     gen_points() # missing relative distance 
@@ -28,10 +29,8 @@ class ParticleGenerator():
     
     Missing:
     to_shapefile()
-
     Attributes
     -----------
-
     """
     def __init__(self, ml):
         """
@@ -161,8 +160,59 @@ class ParticleGenerator():
         return([lx, ly])
 
 
-    def gen_points(self, features, dist, n_part = 100, 
-            id_field = 'fid', fids = None, gen_type='around'):
+
+    def _infer_dist_dic(self, gdf, tol=0.1):
+        """
+        Description
+        -----------
+        Infer seeding particle distances for each features (geometry).
+        For rectangular grid, the infered distance correspond to the
+        distance of the diagonal of the cell intersected by the geometry.
+        
+        Parameters
+        -----------
+        gdf (GeoDataFrame) : spatial DataFrame.
+                             Must contain at least 1 feature with 2 columns
+                             ('fid', 'geometry').
+        tol (float) : distance tolerance
+                      Default is 0.1 meters.
+        Return
+        -----------
+        dist_dic (dict) : infered (safe) distance for each features.
+                         
+        Examples
+        -----------
+        >>> import geopandas as gpd
+        >>> gdf = gpd.read_file('wells.shp')
+        >>> dist_dic = pg._infer_dist_dic(gdf)
+        """
+        # ---- Set function to get maximum distance from vertices
+        try :
+            # ---- Infer maximum distance (all grids)
+            from scipy.spatial import distance
+            get_mdist = lambda arr : np.max(distance.cdist(arr, arr, "euclidean"))
+        except:
+            # ---- Infer maximum distance (rectangular grid only) 
+            get_mdist = lambda arr : np.max(abs(np.diff(arr, axis=0))*np.sqrt(2))
+
+        # ---- Building distance dictionary with vertices distances maximum distance
+        dist_dic = {}
+        for fid, g in zip(gdf['fid'], gdf['geometry']):
+            cellids = self.gi.intersect(g)['cellids']
+            # ---- Compute vertices distances
+            distances = [get_mdist(np.column_stack([self.vxs[cid], self.vys[cid]]))
+                            for cid in cellids]
+            dist_dic[fid] = max(distances) + tol
+
+        # ---- Return distances
+        return dist_dic
+
+
+        
+
+
+    def gen_points(self, features, dist=None, n = 100, id_field = 'fid', 
+                   fids = None, gen_type='around', export = None):
         """
         Description
         -----------
@@ -175,16 +225,24 @@ class ParticleGenerator():
             dictionary with feature IDs as keys and geometries as items.
         dist: float 
             seeding distance of generated points, in geometry length unit
-        n_part: int
-            number of points 
+            If None, infer safe distance from geometry according to intersected
+            cell resolution : 
+                dist = inter_cell_resolution * sqrt(2) (for rectangular grid)
+        n: int
+            number of points
+            Default is 100.
         fid: str or list of str
             feature ids to consider
             If None, all features are considered
+        export: str
+            path to export generated points as shapefile
+            If None, nothing is exported
+            Default is None.
                          
         Examples
         -----------
-        >>> pb = ParticleGenerator(ml)
-        >>> well_sp = pb.gen_points(dist = 5, n_part = 500, fid = 'WELL1')
+        >>> pg = ParticleGenerator(ml)
+        >>> pg.gen_points(dist = 5, n = 500, fids = 'WELL1')
         """
         try : 
             import geopandas as gpd
@@ -204,12 +262,18 @@ class ParticleGenerator():
             print('Check type of features.\
                     Should be str with shp filename or dict of geometries.')
 
-        gdf.set_index('fid', inplace = True)
+        gdf.set_index('fid', drop=False, inplace = True)
         
         # subset by feature ids 
         if fids is not None :
-            if  not isinstance(fids, list): fids = [fids]
+            if not isinstance(fids, list): fids = [fids]
             gdf = gdf.loc[gdf[id_field].isin(fids)]
+
+        # building distance dictionary
+        if dist is None:
+            dist_dic = self._infer_dist_dic(gdf)
+        else:
+            dist_dic = {fid : dist for fid in gdf[id_field]}
 
         # initialize output list of gdf(s) containing
         # generated points for each feature 
@@ -222,18 +286,18 @@ class ParticleGenerator():
             geom = gdf.loc[fid,'geometry']
 
             # buffer around feature geometry
-            buff = geom.buffer(dist)
+            buff = geom.buffer(dist_dic[fid])
 
             # generate points 
             if gen_type == 'around':
                 # keep external boundary as LineString object
                 line = buff.boundary
                 # find the distances from origin between starting points along the line
-                distances = np.linspace(0, line.length,n_part)
+                distances = np.linspace(0, line.length,n)
                 # starting point atr each distance
                 point_list = [line.interpolate(distance) for distance in distances]
             elif gen_type == 'within':
-                point_list= self._gen_points_in_polygon(n_part, buff, tol)[:n_part]
+                point_list= self._gen_points_in_polygon(n, buff, tol)[:n]
             
             # iterate over points and compute local coordinates
             # in model grid cell coordinate system
@@ -254,15 +318,66 @@ class ParticleGenerator():
             point_gdf_list.append(point_gdf)
 
         # concatenate starting points of all feature
+        out_gdf = pd.concat(point_gdf_list, ignore_index=True)
+
+        # Add particle data
         if self.particledata is None :
-            self.particledata = pd.concat(
-                    point_gdf_list,
-                    ignore_index=True
-                    )
+            self.particledata = out_gdf
+
         else :
-            self.particledata = pd.concat(
-                [self.particledata] + point_gdf_list,
-                ignore_index=True)
+            # Manage existing feature (avoid duplicates)
+            for fid in out_gdf['gid'].unique():
+                if fid in self.particledata['gid']:
+                    # -- Raise warning message
+                    warn_msg = f'Warning : feature `{fid}` already exist. ' \
+                               'It will be overwrited.'
+                    warnings.warn(warn_msg, Warning)
+                    # -- Remove existing set of observation
+                    self.remove_particledata(fid)
+
+            # Update particle data
+            self.particledata = pd.concat([self.particledata, out_gdf],
+                                          ignore_index=True)
+
+        # export points to shapefile if required
+        if export is not None:
+            out_gdf.to_file(export)
+
+
+
+    def remove_particledata(self, fids=None, verbose=False):
+        """
+        Description
+        -----------
+        Remove particle data from ids.
+        
+        Parameters
+        -----------
+        fids : str, list of str
+            features names to removed from particledata.
+            If None, all particledata are removed.
+            Default is None.
+
+        verbose : bool
+            print removed features names.
+        
+        Examples
+        -----------
+        >>> pg = ParticleGenerator(ml = ml)
+        >>> pg.gen_points('wells.shp', dist=d, n_part = n_part)
+        >>> pg.removed_particledata(fids = ['well1', 'well2'], verbose =True)
+        """
+        if fids is None:
+            self.particledata = None
+            if verbose:
+                print('All features had been removed.')
+        else:
+            _fids = [fids] if isinstance(fids, str) else fids
+            self.particledata = self.particledata.query('gid not in @_fids')
+            if verbose:
+                print('\n'.join([f'Feature `{gid}` had been removed.' for gid in _fids]))
+
+
 
 
     def get_particlegroups(self, pgids=None, pgid_file=None):
@@ -274,8 +389,11 @@ class ParticleGenerator():
 
         Parameters
         -----------
-        pgids : (str of list) 
+        pgids : list of str
             particle group id or list of group ids
+        pgid_file : str
+            path to create a simple text file with particle 
+            groups names and and numerix ids.
 
         Returns
         -----------
@@ -332,10 +450,14 @@ class ParticleGenerator():
         return pgrp_list
     
 
+
+
+
+
+
 class TrackingAnalyzer():
     """ 
         Particle tracking post-processor 
-
     -----------
     Arguments
     -----------
@@ -347,9 +469,9 @@ class TrackingAnalyzer():
     - compute_mixing_ratio()
     """
     
-    def __init__(self, endpoint_file=None, pathline_file=None, 
-            cbc_file = None, grb_file = None, pgrp_file = None,
-             mpsim=None, ml=None, precision = 'double'):
+    def __init__(self, ml=None, mpsim=None, endpoint_file=None, 
+                 pathline_file=None, cbc_file = None, grb_file = None,
+                 pgrp_file = None, riv_file=None, precision = 'double'):
         """
         Description
         -----------
@@ -360,10 +482,12 @@ class TrackingAnalyzer():
         -----------
         - ml   (flopy.mf6.modflow.mfgwf.ModflowGwf) : mf6 ground water flow model
         - mpsim (flopy.modpath.mp7sim.Modpath7Sim) : mp7 simulation
+        - rivfile (str) : path to a modflowriv package to
+                          read externally if required.
+                          Default is None
         - precision (str) : precision of the floating point data of the cbc file
                           Can be 'simple' or 'double'
                           (Default is 'double')
-
         Examples
         -----------
         >>> ta = TrackingAnalyzer(ml, mpsim)
@@ -371,12 +495,15 @@ class TrackingAnalyzer():
 
         try :
             from flopy.utils import EndpointFile, PathlineFile, CellBudgetFile
-            from flopy.mf6.utils import MfGrdFile
+            from flopy.utils import MfGrdFile
             
         except ImportError :
             print('Could not load flopy modules')
             return
         
+        # Initialise flowmodel to None
+        self.ml = None
+
         if  ml is not None and mpsim is not None :
             # Assuming that the model is steady-stade
             assert ml.nper == 1, 'The flow model must be in steady-state conditions'
@@ -401,11 +528,12 @@ class TrackingAnalyzer():
             # get particle group data 
             self.pgrpname_dic = {i:pgrp.particlegroupname for i, pgrp in enumerate(mpsim.particlegroups)}
 
+
         # fetch endpoint file
         assert endpoint_file is not None, 'No endpoint file, provide mpsim or endpoint_file'
         self.edp = EndpointFile(endpoint_file)
         # fetch pathline file
-        assert pathline_file is not None, 'No endpoint file, provide mpsim or pathline_file'
+        assert pathline_file is not None, 'No pathline file, provide mpsim or pathline_file'
         self.pth = PathlineFile(pathline_file)
         # fetch cbc file 
         assert cbc_file is not None, 'No cbc file, provide ml or cbc_file'
@@ -414,6 +542,9 @@ class TrackingAnalyzer():
         assert grb_file is not None, 'No grd file, provide ml or grd_file'
         bgf = MfGrdFile(grb_file) 
         
+        # fetch river package file
+        self.riv_file = riv_file
+
         # read group name file 
         if pgrp_file is not None : 
             pgrp_df = pd.read_csv(pgrp_file, header=None, names=['gid','name'], index_col=0) 
@@ -437,6 +568,9 @@ class TrackingAnalyzer():
         
         # ---- Fetch IA information from binary grid file
         self.ia = bgf._datadict['IA'] - 1
+
+
+
 
     def get_part_velocity(self):
         '''
@@ -482,33 +616,95 @@ class TrackingAnalyzer():
         return(np.array(inflows).sum())
 
 
-    def compute_mixing_ratio(self):
+
+
+
+    def get_reach_dic(self):
+        """
+        -----------
+        Description
+        -----------
+        Get dictionary of river reaches names (boundname) with related
+        river node as list.
+
+        -----------
+        Parameters
+        -----------
+
+        -----------
+        Returns
+        -----------
+        - reac_dic (dict) : river reaches with river nodes
+                            Format :
+                                {reach_name0: [node_0, node_1, ..],
+                                 reach_name1: [node_0, node_1, ..]}
+
+        -----------
+        Examples
+        -----------
+        >>> ta= TrackingAnalyzer(ml, mpsim)
+        >>> reach_dic = ta.get_reach_dic()
+        """
+
+        # ---- Check input access to river data
+        err_msg = 'ERROR : Could not access river data.'
+        assert any(obj is not None for obj in [self.ml, self.riv_file]), err_msg
+        
+        # ---- Get river DataFrame from internal river package
+        if self.ml is not None:
+            # -- Convert stress period recarray to DataFrame
+            riv_df = pd.DataFrame(self.ml.riv.stress_period_data.get_data(0))
+            riv_df['node'] = riv_df['cellid'].apply(lambda cid: cid[1])
+        
+        # ---- Get river DataFrame from external river package
+        elif self.riv_file is not None:
+            # -- Read river package line-by-line
+            with open(self.riv_file,'r') as f:
+                c = f.read()
+                start = 'BEGIN period  1\n'
+                end = 'END period  1\n'
+                lines = c[c.index(start)+len(start) : c.index(end)].splitlines()
+
+            # -- Build river DataFrame
+            cols = ['node', 'boundname']
+            riv_df = pd.DataFrame([np.array(l.strip().split())[[1,-1]] 
+                         for l in lines], columns = cols)
+            riv_df = riv_df.astype({c:dt for c,dt in zip(cols,[int,str])})
+        
+        # ---- Extract reach dictionary
+        reach_dic = riv_df.groupby('boundname').apply(lambda r: r.node.tolist()).to_dict()
+
+        # ---- Return dictionary of reaches
+        return reach_dic
+
+
+
+
+
+    def compute_mixing_ratio(self, agg_dic=None):
         """
         -----------
         Description
         -----------
         Compute the mixing ratio between river water and ground water at a 
         given water production unit
+
         -----------
         Parameters
         -----------
-        - self (vulnerability.SSRV)
-        - agg_reach_dic (dict) : aggregation reaches names
-                               (format: {'reach_group1' : ['reach1', 'reach2', 'reach3'],
-                                   'reach_group2' : ['reach4', 'reach5']} )
-                               (Default is None)
-        - filled (bool) : round mixing ratio
-                        (Default is False)
+        - agg_dic (dict) : aggregation of reaches names
+                           Format: {'reach_group1' : ['reach1', 'reach2', 'reach3'],
+                                    'reach_group2' : ['reach4', 'reach5']} )
+                           Default is None
         -----------
         Returns
         -----------
-        - mr_df  :
-
+        - mr_df  (DataFrame) : computed mixing ratios
         -----------
         Examples
         -----------
-        >>> ssrv = SSRV(ml, mpsim)
-        >>> mr_df = ssrv.compute_mixing_ratio(filled = True)
+        >>> ta= TrackingAnalyzer(ml, mpsim)
+        >>> mr_df = ta.compute_mixing_ratio()
         """
 
         # df of endpoints
@@ -522,6 +718,14 @@ class TrackingAnalyzer():
         # mark 'river' endpoints
         edp_df['endriv'] = edp_df.node.apply(
                 lambda n: n in self.riv_cells)
+
+        # add river reaches by name
+        for rid, r_nodes in self.get_reach_dic().items():
+            edp_df.loc[edp_df.node.isin(r_nodes), 'riv_id'] = rid
+
+        # aggregate reaches if required
+        if agg_dic is not None:
+            for k,v in agg_dic.items(): edp_df['riv_id'].replace(v, k, inplace=True)
 
         # get river leakage 
         edp_df['riv_leak'] = 0.
@@ -542,30 +746,16 @@ class TrackingAnalyzer():
         v_df = self.get_part_velocity()
         edp_df.loc[edp_df.particleid,'v'] = v_df.loc[edp_df.particleid,'v']
 
-        # grouped weighted average 
-        mr = edp_df.groupby(edp_df.grpnme).apply(lambda d: np.average(d.alpha, weights=d.v))
+        # grouped weighted average by group name and river id
+        mr = edp_df.groupby(['grpnme','riv_id'], 
+                                 dropna=False).apply(
+                                 lambda d: np.average(d.alpha, weights=d.v)
+                                 )
+        # ---- Return as DataFrame (unpacking multindex)
+        mr_df = mr.unstack(level=0, fill_value=0)
+        return  mr_df[mr_df.index.notnull()]
 
-        return mr
 
-
-    def __str__(self):
-
-        print('\n')
-        # ---- Print head
-        header = ' Steady-State River Vulnerability Class '
-        # ---- Collect SSRV main informations
-        inf =  ['Ground Water Flow model', 'Number of river reaches',
-                'Names of river reaches', 'Particle Group names',
-                'Particle Group ids']
-        res = [self.ml.name, len(self.get_reach_names()), 
-               ', '.join(sorted(self.get_reach_names())),
-               ', '.join(list(self.part_group_ids_num.keys())),
-               ', '.join([str(i) for i in self.part_group_ids_num.values()])]
-        # ---- Build DataFrame
-        df = pd.DataFrame({' ': inf, header : res})
-        # ---- Print table of information
-        print(df.to_markdown(index = False, tablefmt="simple"))
-        return '\n'
 
 
 
@@ -574,7 +764,6 @@ class SSZV():
     """ 
         Class to define zonal vulnerability object from a backward 
         steady-state particle tracking 
-
     -----------
     Arguments
     -----------
@@ -1062,4 +1251,3 @@ class SSZV():
         # ---- Print table of information
         print(df.to_markdown(index = False, tablefmt="simple"))
         return '\n'
-
