@@ -9,12 +9,10 @@ except ImportError :
     print('Could not load pandas...')
 
 
-# TODO : get model grid cell resolution to infer relevant distance (Pierre, done)
-# TODO : export seeded points to shapefile (Pierre, done)
-# TODO : manage river ids (Pierre, done)
-# TODO : read group ids from mpsim (Alex, done)
+# TODO : fix distance function for vertices  
 # TODO : check structured grid support 
 # TODO : check generation from geometries (Pierre)
+# TODO : update zone vulnerability 
 
 class ParticleGenerator():
     """ 
@@ -160,14 +158,14 @@ class ParticleGenerator():
         return([lx, ly])
 
 
-
     def _infer_dist_dic(self, gdf, tol=0.1):
         """
         Description
         -----------
-        Infer seeding particle distances for each features (geometry).
-        For rectangular grid, the infered distance correspond to the
-        distance of the diagonal of the cell intersected by the geometry.
+        Infer seeding particle distances for each features (drain, wells).
+        The inferred distance corresponds to the diagonal of the largest 
+        cell intersect by the feature geometry.
+        Mesh cells are assumed to be rectangular. 
         
         Parameters
         -----------
@@ -186,14 +184,8 @@ class ParticleGenerator():
         >>> gdf = gpd.read_file('wells.shp')
         >>> dist_dic = pg._infer_dist_dic(gdf)
         """
-        # ---- Set function to get maximum distance from vertices
-        try :
-            # ---- Infer maximum distance (all grids)
-            from scipy.spatial import distance
-            get_mdist = lambda arr : np.max(distance.cdist(arr, arr, "euclidean"))
-        except:
-            # ---- Infer maximum distance (rectangular grid only) 
-            get_mdist = lambda arr : np.max(abs(np.diff(arr, axis=0))*np.sqrt(2))
+        # function to get cell diagonal length
+        get_mdist = lambda arr : arr #NOTE to be updated 
 
         # ---- Building distance dictionary with vertices distances maximum distance
         dist_dic = {}
@@ -206,9 +198,6 @@ class ParticleGenerator():
 
         # ---- Return distances
         return dist_dic
-
-
-        
 
 
     def gen_points(self, features, dist=None, n = 100, id_field = 'fid', 
@@ -344,7 +333,6 @@ class ParticleGenerator():
             out_gdf.to_file(export)
 
 
-
     def remove_particledata(self, fids=None, verbose=False):
         """
         Description
@@ -376,8 +364,6 @@ class ParticleGenerator():
             self.particledata = self.particledata.query('gid not in @_fids')
             if verbose:
                 print('\n'.join([f'Feature `{gid}` had been removed.' for gid in _fids]))
-
-
 
 
     def get_particlegroups(self, pgids=None, pgid_file=None):
@@ -450,11 +436,6 @@ class ParticleGenerator():
         return pgrp_list
     
 
-
-
-
-
-
 class TrackingAnalyzer():
     """ 
         Particle tracking post-processor 
@@ -469,9 +450,9 @@ class TrackingAnalyzer():
     - compute_mixing_ratio()
     """
     
-    def __init__(self, ml=None, mpsim=None, endpoint_file=None, 
-                 pathline_file=None, cbc_file = None, grb_file = None,
-                 pgrp_file = None, riv_file=None, precision = 'double'):
+    def __init__(self, endpoint_file=None, pathline_file=None, 
+            cbc_file = None, grb_file = None,
+             mpsim=None, ml=None, precision = 'double'):
         """
         Description
         -----------
@@ -495,14 +476,19 @@ class TrackingAnalyzer():
 
         try :
             from flopy.utils import EndpointFile, PathlineFile, CellBudgetFile
-            from flopy.utils import MfGrdFile
+            from flopy.mf6.utils import MfGrdFile # NOTE check path 
             
         except ImportError :
             print('Could not load flopy modules')
             return
         
-        # Initialise flowmodel to None
+        # initialise flowmodel to None
         self.ml = None
+
+        # initialize particle parameter group file 
+        self.pgrp_file = None
+        # initialize river name dictionary  
+        self.rivname_dic = None
 
         if  ml is not None and mpsim is not None :
             # Assuming that the model is steady-stade
@@ -528,7 +514,6 @@ class TrackingAnalyzer():
             # get particle group data 
             self.pgrpname_dic = {i:pgrp.particlegroupname for i, pgrp in enumerate(mpsim.particlegroups)}
 
-
         # fetch endpoint file
         assert endpoint_file is not None, 'No endpoint file, provide mpsim or endpoint_file'
         self.edp = EndpointFile(endpoint_file)
@@ -541,35 +526,26 @@ class TrackingAnalyzer():
         # fetch grb file 
         assert grb_file is not None, 'No grd file, provide ml or grd_file'
         bgf = MfGrdFile(grb_file) 
-        
-        # fetch river package file
-        self.riv_file = riv_file
-
+                
         # read group name file 
-        if pgrp_file is not None : 
+        if self.pgrp_file is not None : 
             pgrp_df = pd.read_csv(pgrp_file, header=None, names=['gid','name'], index_col=0) 
             self.pgrpname_dic = {grp_id:grp_name for 
-                    grp_id,grp_name in zip(pgrp_df.index,pgrp_df['name'])}
+                    grp_id,grp_name in zip(pgrp_df.index,pgrp_df.name)}
         
-        # ---- Fetch river leakage data as data frame, fixing 1-based cbc file issue
-        flowja = self.cbc.get_data(text='FLOW-JA-FACE')[0][0, 0, :]
-       
         # river leakage from cbc
-        self.riv_leak_df = pd.DataFrame(
-            self.cbc.get_data(text='RIV')[0])
+        self.riv_leak_df = pd.DataFrame(self.cbc.get_data(text='RIV')[0])
         self.riv_leak_df['node'] = self.riv_leak_df['node'] - 1 # back to 0-based
-        self.riv_leak_df.set_index('node',inplace=True)
+        self.riv_leak_df.set_index('node', drop=False, inplace=True)
         
         # river cells 
         self.riv_cells = self.riv_leak_df.index.values
 
-        # ---- Fetch cell connectivity (FLOW-JA-FACE)
+        # inter-cell flows (FLOW-JA-FACE)
         self.flowja = self.cbc.get_data(text='FLOW-JA-FACE')[0][0, 0, :]
         
-        # ---- Fetch IA information from binary grid file
+        # IA information from binary grid file
         self.ia = bgf._datadict['IA'] - 1
-
-
 
 
     def get_part_velocity(self):
@@ -615,8 +591,32 @@ class TrackingAnalyzer():
             if flow > 0 : inflows.append(flow)
         return(np.array(inflows).sum())
 
+ 
+
+    def get_pgrp_names(self, pgrp_file):
+        '''
+        Description
+        -----------
+        Reads particle group name from csv file 
+        When provided, mixing ratios are labeled with names rather than ids
+        '''
+        pgrp_df = pd.read_csv(pgrp_file, header=None, names=['id','name'], index_col=0) 
+        self.pgrpname_dic = {grp_id:grp_name for 
+            grp_id,grp_name in zip(pgrp_df.index,pgrp_df.name)}
 
 
+    def get_riv_names(self,riv_file):
+        '''
+        Description
+        -----------
+        Reads boundary condition name (ex. river reach) from csv file
+        When bc_names are provided and bc ids are given as auxiliary 
+        variable in the cbc, mixing ratios can be provided with name as labels 
+         
+        '''
+        riv_df = pd.read_csv(riv_file, header=None, names=['id','name'], index_col=0)
+        self.rivname_dic = {riv_id:riv_name for 
+                riv_id,riv_name in zip(riv_df.index,riv_df.name)}
 
 
     def get_reach_dic(self):
@@ -678,10 +678,7 @@ class TrackingAnalyzer():
         return reach_dic
 
 
-
-
-
-    def compute_mixing_ratio(self, agg_dic=None):
+    def compute_mixing_ratio(self):
         """
         -----------
         Description
@@ -712,20 +709,14 @@ class TrackingAnalyzer():
         edp_df = edp_df.astype({'node': int})
         
         # add particle group name
-        edp_df['grpnme'] = edp_df.particlegroup.apply(
-                lambda gid: self.pgrpname_dic[gid])
+        if self.pgrpname_dic is not None:
+            edp_df['grpnme'] = [self.pgrpname_dic[gid] 
+                    for gid in edp_df.particlegroup.values]
+        
 
-        # mark 'river' endpoints
+        # identify endpoints in river cells
         edp_df['endriv'] = edp_df.node.apply(
                 lambda n: n in self.riv_cells)
-
-        # add river reaches by name
-        for rid, r_nodes in self.get_reach_dic().items():
-            edp_df.loc[edp_df.node.isin(r_nodes), 'riv_id'] = rid
-
-        # aggregate reaches if required
-        if agg_dic is not None:
-            for k,v in agg_dic.items(): edp_df['riv_id'].replace(v, k, inplace=True)
 
         # get river leakage 
         edp_df['riv_leak'] = 0.
@@ -734,30 +725,53 @@ class TrackingAnalyzer():
                 'node'].apply(
                         lambda n: self.riv_leak_df.loc[n,'q'].sum())
 
-        # get cell inflows
+        # get river name 
+        if self.rivname_dic is not None:
+            # keep high flow bc when multiple riv bc applied to the same cell
+            riv_df =  self.riv_leak_df.sort_values('q', ascending=False).drop_duplicates(['node'])
+            riv_df = riv_df.astype({'FID': int})
+            # get river name name from id 
+            riv_df['name'] = [ self.rivname_dic[riv_id] for riv_id in riv_df.FID]
+            # add source name column to edp_df
+            edp_df['src'] = 'OTHERS'
+            edp_df.loc[edp_df.endriv,'src'] = riv_df.loc[edp_df.loc[edp_df.endriv].node,'name'].values
+
+        # get cell inflows from cbc
         edp_df.loc[edp_df.endriv,'rivcell_q'] = edp_df.loc[edp_df.endriv,
                 'node'].apply(self.get_cell_inflows)
-
-        # compute particle mixing ratio
-        edp_df['alpha'] = edp_df['riv_leak']/ (edp_df['riv_leak']+edp_df['rivcell_q'])
-        edp_df.loc[edp_df.alpha.isnull(),'alpha']=0.
 
         # get particle velocity and merge value into edp_df
         v_df = self.get_part_velocity()
         edp_df.loc[edp_df.particleid,'v'] = v_df.loc[edp_df.particleid,'v']
 
-        # grouped weighted average by group name and river id
-        mr = edp_df.groupby(['grpnme','riv_id'], 
-                                 dropna=False).apply(
-                                 lambda d: np.average(d.alpha, weights=d.v)
-                                 )
-        # ---- Return as DataFrame (unpacking multindex)
-        mr_df = mr.unstack(level=0, fill_value=0)
+        # compute particle mixing ratio
+        edp_df['alpha'] = edp_df['riv_leak']/ (edp_df['riv_leak']+edp_df['rivcell_q'])
+        edp_df.loc[edp_df.alpha.isnull(),'alpha']=0.
+
+        # Grouped weighted average of mixing ratios
+        # When they are provided, results are labeled with particle group names 
+        # and bc id names, rather than integer ids.
+        if (self.rivname_dic is not None) and (self.pgrpname_dic is not None):
+            mr = edp_df.groupby(['grpnme','src']).apply(lambda d: np.average(d.alpha, weights=d.v))
+
+        elif self.rivname_dic is not None :
+            mr = edp_df.groupby(['particleid','src']).apply(lambda d: np.average(d.alpha, weights=d.v))
+
+        elif self.pgrpname_dic is not None :
+            mr = edp_df.groupby(['grpnme']).apply(lambda d: np.average(d.alpha, weights=d.v))
+
+        else :
+            mr = edp_df.groupby(['particleid']).apply(lambda d: np.average(d.alpha, weights=d.v))
+        
+        # fill 'others' source
+        if isinstance(mr.index,pd.MultiIndex):
+            grp_ids = set(mr.index.get_level_values(0))
+            for gid in grp_ids: mr.loc[gid]['OTHERS'] = 1. - mr[gid].sum()
+            # return as DataFrame (unpacking multindex)
+            mr_df = mr.unstack(level=0, fill_value=0)
+        else :
+            mr_df = pd.DataFrame(mr)
         return  mr_df[mr_df.index.notnull()]
-
-
-
-
 
 
 class SSZV():
@@ -1060,7 +1074,6 @@ class SSZV():
         -----------
         Parameters
         -----------
-        - self  (vulnerability.SSZV)
         - method (str) : intersection whith vulnerability zone to keep 
                          to compute zonal vulnerability
                          (Default is 'all')
