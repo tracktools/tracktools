@@ -185,7 +185,7 @@ class ParticleGenerator():
         >>> dist_dic = pg._infer_dist_dic(gdf)
         """
         # function to get cell diagonal length
-        get_mdist = lambda x,y : max(np.sqrt(x**2 + y**2))
+        get_mdist = lambda x,y : np.sqrt((x[2]-x[0])**2 + (y[2]-y[0])**2)
 
         # ---- Building distance dictionary with vertices distances maximum distance
         dist_dic = {}
@@ -476,10 +476,10 @@ class TrackingAnalyzer():
 
         try :
             from flopy.utils import EndpointFile, PathlineFile, CellBudgetFile
-            from flopy.mf6.utils import MfGrdFile # NOTE check path 
+            from flopy.mf6.utils import MfGrdFile
             
         except ImportError :
-            print('Could not load flopy modules')
+            print('Could not load flopy modules.')
             return
         
         # initialise flowmodel to None
@@ -751,18 +751,19 @@ class TrackingAnalyzer():
         # Grouped weighted average of mixing ratios
         # When they are provided, results are labeled with particle group names 
         # and bc id names, rather than integer ids.
-        if (self.rivname_dic is not None) and (self.pgrpname_dic is not None):
-            mr = edp_df.groupby(['grpnme','src']).apply(lambda d: np.average(d.alpha, weights=d.v))
+        if all(d is not None for d in [self.rivname_dic, self.pgrpname_dic]):
+            gb = ['grpnme','src']
 
         elif self.rivname_dic is not None :
-            mr = edp_df.groupby(['particleid','src']).apply(lambda d: np.average(d.alpha, weights=d.v))
+            gb = ['particleid','src']
 
         elif self.pgrpname_dic is not None :
-            mr = edp_df.groupby(['grpnme']).apply(lambda d: np.average(d.alpha, weights=d.v))
-
+            gb = ['grpnme']
         else :
-            mr = edp_df.groupby(['particleid']).apply(lambda d: np.average(d.alpha, weights=d.v))
-        
+            gb = ['particleid']
+
+        mr = edp_df.groupby(gb).apply(lambda d: np.average(d.alpha, weights=d.v))
+
         # fill 'others' source
         if isinstance(mr.index,pd.MultiIndex):
             grp_ids = set(mr.index.get_level_values(0))
@@ -772,6 +773,13 @@ class TrackingAnalyzer():
         else :
             mr_df = pd.DataFrame(mr)
         return  mr_df[mr_df.index.notnull()]
+
+
+
+
+
+#df['OTHERS'].apply(lambda s: 1 - s.sum(), axis=1)
+
 
 
 class SSZV():
