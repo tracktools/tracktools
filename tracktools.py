@@ -185,14 +185,14 @@ class ParticleGenerator():
         >>> dist_dic = pg._infer_dist_dic(gdf)
         """
         # function to get cell diagonal length
-        get_mdist = lambda arr : arr #NOTE to be updated 
+        get_mdist = lambda x,y : max(np.sqrt(x**2 + y**2))
 
         # ---- Building distance dictionary with vertices distances maximum distance
         dist_dic = {}
         for fid, g in zip(gdf['fid'], gdf['geometry']):
             cellids = self.gi.intersect(g)['cellids']
             # ---- Compute vertices distances
-            distances = [get_mdist(np.column_stack([self.vxs[cid], self.vys[cid]]))
+            distances = [get_mdist(self.vxs[cid], self.vys[cid])
                             for cid in cellids]
             dist_dic[fid] = max(distances) + tol
 
