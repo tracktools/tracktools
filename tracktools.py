@@ -8,11 +8,10 @@ except ImportError :
 
 
 # TODO : get model grid cell resolution to infer relevant distance
-# TODO : export seeded points to shapefile
-# TODO : manage river ids 
-# TODO : read group ids from mpsim
+# TODO : export seeded points to shapefile (Pierre)
+# TODO : manage river ids  (Alex)
 # TODO : check structured grid support 
-# TODO : check generation from geometries 
+# TODO : check generation from geometries (Pierre)
 
 class ParticleGenerator():
     """ 
@@ -348,7 +347,7 @@ class TrackingAnalyzer():
     """
     
     def __init__(self, endpoint_file=None, pathline_file=None, 
-            cbc_file = None, grb_file = None, pgrp_file = None,
+            cbc_file = None, grb_file = None,
              mpsim=None, ml=None, precision = 'double'):
         """
         Description
@@ -413,14 +412,8 @@ class TrackingAnalyzer():
         # fetch grb file 
         assert grb_file is not None, 'No grd file, provide ml or grd_file'
         bgf = MfGrdFile(grb_file) 
-        
-        # read group name file 
-        if pgrp_file is not None : 
-            pgrp_df = pd.read_csv(pgrp_file, header=None, names=['gid','name'], index_col=0) 
-            self.pgrpname_dic = {grp_id:grp_name for 
-                    grp_id,grp_name in zip(pgrp_df.index,pgrp_df['name'])}
-        
-        # ---- Fetch river leakage data as data frame, fixing 1-based cbc file issue
+                
+        # river leakage data as data frame, fixing 1-based cbc file issue
         flowja = self.cbc.get_data(text='FLOW-JA-FACE')[0][0, 0, :]
        
         # river leakage from cbc
@@ -432,10 +425,10 @@ class TrackingAnalyzer():
         # river cells 
         self.riv_cells = self.riv_leak_df.index.values
 
-        # ---- Fetch cell connectivity (FLOW-JA-FACE)
+        # cell connectivity (FLOW-JA-FACE)
         self.flowja = self.cbc.get_data(text='FLOW-JA-FACE')[0][0, 0, :]
         
-        # ---- Fetch IA information from binary grid file
+        # IA information from binary grid file
         self.ia = bgf._datadict['IA'] - 1
 
     def get_part_velocity(self):
@@ -481,7 +474,34 @@ class TrackingAnalyzer():
             if flow > 0 : inflows.append(flow)
         return(np.array(inflows).sum())
 
+ 
 
+    def get_pgrp_names(self, pgrp_file):
+        '''
+        Description
+        -----------
+        Reads particle group name from csv file 
+        When provided, mixing ratios are labeled with names rather than ids
+        '''
+        pgrp_df = pd.read_csv(pgrp_file, header=None, names=['id','name'], index_col=0) 
+        self.pgrpname_dic = {grp_id:grp_name for 
+            grp_id,grp_name in zip(pgrp_df.index,pgrp_df.name)}
+
+
+    def get_riv_names(self,riv_file):
+        '''
+        Description
+        -----------
+        Reads boundary condition name (ex. river reach) from csv file
+        When bc_names are provided and bc ids are given as auxiliary 
+        variable in the cbc, mixing ratios can be provided with name as labels 
+         
+        '''
+        riv_df = pd.read_csv(riv_file, header=None, names=['id','name'], index_col=0)
+        self.rivname_dic = {riv_id:riv_name for 
+                riv_id,riv_name in zip(riv_df.index,riv_df.name)}
+
+        
     def compute_mixing_ratio(self):
         """
         -----------
@@ -516,8 +536,10 @@ class TrackingAnalyzer():
         edp_df = edp_df.astype({'node': int})
         
         # add particle group name
-        edp_df['grpnme'] = edp_df.particlegroup.apply(
-                lambda gid: self.pgrpname_dic[gid])
+        if self.pgrpname_dic is not None:
+            edp_df['grpnme'] = [self.pgrpname_dic[gid] 
+                    for gid in edp_df.particlegroup.values]
+        
 
         # mark 'river' endpoints
         edp_df['endriv'] = edp_df.node.apply(
@@ -530,20 +552,49 @@ class TrackingAnalyzer():
                 'node'].apply(
                         lambda n: self.riv_leak_df.loc[n,'q'].sum())
 
-        # get cell inflows
+        # get river name 
+        if self.rivname_dic is not None:
+            # keep high flow bc when multiple riv bc applied to the same cell
+            riv_df =  self.riv_leak_df.sort_values('q', ascending=False).drop_duplicates(['node'])
+            riv_df = riv_df.astype({'FID': int})
+            # get river name name from id 
+            riv_df['name'] = [ rivname_dic[riv_id] for riv_id in riv_df.FID]
+            # add source name column to edp_df
+            edp_df['src'] = 'OTHERS'
+            edp_df.loc[edp_df.endriv,'src'] = riv_df.loc[edp_df.loc[edp_df.endriv].node,'name'].values
+
+        # get cell inflows from cbc
         edp_df.loc[edp_df.endriv,'rivcell_q'] = edp_df.loc[edp_df.endriv,
                 'node'].apply(self.get_cell_inflows)
-
-        # compute particle mixing ratio
-        edp_df['alpha'] = edp_df['riv_leak']/ (edp_df['riv_leak']+edp_df['rivcell_q'])
-        edp_df.loc[edp_df.alpha.isnull(),'alpha']=0.
 
         # get particle velocity and merge value into edp_df
         v_df = self.get_part_velocity()
         edp_df.loc[edp_df.particleid,'v'] = v_df.loc[edp_df.particleid,'v']
 
-        # grouped weighted average 
-        mr = edp_df.groupby(edp_df.grpnme).apply(lambda d: np.average(d.alpha, weights=d.v))
+        # compute particle mixing ratio
+        edp_df['alpha'] = edp_df['riv_leak']/ (edp_df['riv_leak']+edp_df['rivcell_q'])
+        edp_df.loc[edp_df.alpha.isnull(),'alpha']=0.
+
+        # Grouped weighted average of mixing ratios
+        # When they are provided, results are labeled with particle group names 
+        # and bc id names, rather than integer ids.
+        # names 
+        if (self.rivname_dic is not None) and (self.pgrpname_dic is not None):
+            mr = edp_df.groupby(['grpnme','rivname']).apply(lambda d: np.average(d.alpha, weights=d.v))
+
+        elif self.rivname_dic is not None :
+            mr = edp_df.groupby(['particleid','rivname']).apply(lambda d: np.average(d.alpha, weights=d.v))
+
+        elif self.pgrpname_dic is not None :
+            mr = edp_df.groupby(['grpnme']).apply(lambda d: np.average(d.alpha, weights=d.v))
+
+        else :
+            mr = edp_df.groupby(['particleid']).apply(lambda d: np.average(d.alpha, weights=d.v))
+        
+        # fill 'others' source
+        if isinstance(mr_df.index,pd.MultiIndex):
+            grp_ids = set(mr.index.get_level_values(0))
+            for gid in grp_ids: mr_df.loc[gid]['OTHERS'] = 1. - mr_df[gid].sum()
 
         return mr
 
