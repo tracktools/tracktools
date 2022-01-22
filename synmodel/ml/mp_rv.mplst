@@ -64,9 +64,9 @@ The zone value for all cells = 1
 The retardation factor for all cells = 1
 
 Number of particle groups =     3
-Particle group    1 contains        400 particles.
+Particle group    1 contains        200 particles.
 Particle group    2 contains        200 particles.
-Particle group    3 contains        200 particles.
+Particle group    3 contains        400 particles.
 Total number of particles =        800
  
  
@@ -160,4 +160,4 @@ Particle Summary:
  
 
 Normal termination.                                                        
- Elapsed time =     0.22270E+01 seconds
+ Elapsed time =     0.19610E+01 seconds

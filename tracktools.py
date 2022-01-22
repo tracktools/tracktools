@@ -184,8 +184,8 @@ class ParticleGenerator():
         >>> gdf = gpd.read_file('wells.shp')
         >>> dist_dic = pg._infer_dist_dic(gdf)
         """
-        # function to get cell diagonal length
-        get_mdist = lambda x,y : np.sqrt((x[2]-x[0])**2 + (y[2]-y[0])**2)
+        # get rectangular diagonal
+        get_mdist = lambda xs, ys : np.sqrt((xs[2]-xs[0])**2 + (ys[2]-ys[0])**2)
 
         # ---- Building distance dictionary with vertices distances maximum distance
         dist_dic = {}
@@ -198,6 +198,8 @@ class ParticleGenerator():
 
         # ---- Return distances
         return dist_dic
+
+
 
 
     def gen_points(self, features, dist=None, n = 100, id_field = 'fid', 
@@ -436,6 +438,12 @@ class ParticleGenerator():
         return pgrp_list
     
 
+
+
+
+
+
+
 class TrackingAnalyzer():
     """ 
         Particle tracking post-processor 
@@ -483,12 +491,10 @@ class TrackingAnalyzer():
             return
         
         # initialise flowmodel to None
-        self.ml = None
+        self.ml, self.mpsim = ml, mpsim
 
-        # initialize particle parameter group file 
-        self.pgrp_file = None
         # initialize river name dictionary  
-        self.rivname_dic = None
+        self.pgrpname_dic, self.rivname_dic = None, None
 
         if  ml is not None and mpsim is not None :
             # Assuming that the model is steady-stade
@@ -501,7 +507,6 @@ class TrackingAnalyzer():
             msg = 'boundnames must be specified for each river cells in RIV stress period data'
             boundnames = ml.get_package('RIV').stress_period_data.get_data(0)['boundname']
             assert all([x is not None for x in boundnames]), msg
-            self.ml = ml
             grb_file = os.path.join(ml.model_ws,
                            '{}.{}.grb'.format(ml.name,
                                               ml.get_grid_type().name.lower()))
@@ -527,11 +532,6 @@ class TrackingAnalyzer():
         assert grb_file is not None, 'No grd file, provide ml or grd_file'
         bgf = MfGrdFile(grb_file) 
                 
-        # read group name file 
-        if self.pgrp_file is not None : 
-            pgrp_df = pd.read_csv(pgrp_file, header=None, names=['gid','name'], index_col=0) 
-            self.pgrpname_dic = {grp_id:grp_name for 
-                    grp_id,grp_name in zip(pgrp_df.index,pgrp_df.name)}
         
         # river leakage from cbc
         self.riv_leak_df = pd.DataFrame(self.cbc.get_data(text='RIV')[0])
@@ -593,92 +593,145 @@ class TrackingAnalyzer():
 
  
 
-    def get_pgrp_names(self, pgrp_file):
+    def load_pgrp_names(self, pgrp_file=None):
         '''
         Description
         -----------
-        Reads particle group name from csv file 
-        When provided, mixing ratios are labeled with names rather than ids
-        '''
-        pgrp_df = pd.read_csv(pgrp_file, header=None, names=['id','name'], index_col=0) 
-        self.pgrpname_dic = {grp_id:grp_name for 
-            grp_id,grp_name in zip(pgrp_df.index,pgrp_df.name)}
+        Fetch and store particle group names from:
+            - modpath7 simulation object (internal, recommended)
+            - `pgrp_file` if provided (external, recommended)
 
 
-    def get_riv_names(self,riv_file):
-        '''
-        Description
-        -----------
-        Reads boundary condition name (ex. river reach) from csv file
-        When bc_names are provided and bc ids are given as auxiliary 
-        variable in the cbc, mixing ratios can be provided with name as labels 
-         
-        '''
-        riv_df = pd.read_csv(riv_file, header=None, names=['id','name'], index_col=0)
-        self.rivname_dic = {riv_id:riv_name for 
-                riv_id,riv_name in zip(riv_df.index,riv_df.name)}
-
-
-    def get_reach_dic(self):
-        """
-        -----------
-        Description
-        -----------
-        Get dictionary of river reaches names (boundname) with related
-        river node as list.
-
-        -----------
         Parameters
         -----------
+        - pgrp_file (str): path to a external text file (.txt, .csv, ..)
+                           without headers, comma separated.
+                          Format:   
+                                0, pg_name0
+                                1, pg_name1
+                                3, pg_name2
+                                ...
+                          Default is None.
 
-        -----------
+
         Returns
         -----------
-        - reac_dic (dict) : river reaches with river nodes
+        - pgrpname_dic (dict) : store particle group names with their numerical id
+                                Format :
+                                    {pgid_0: pg_name0, pgid_1: pg_name1, ..}
+
+        Examples
+        -----------
+        >>> ta = TrackingAnalyzer(ml, mpsim)
+        >>> reach_dic = ta.load_pgrp_names()
+
+        '''
+        # -- from internal modpath simulation 
+        if self.mpsim is not None:
+            self.pgrpname_dic = {i:pg.particlegroupname
+                                    for i, pg in enumerate(mpsim.particlegroups)}
+        
+        # -- from external particle group file
+        elif pgrp_file is not None:
+            pg_df = pd.read_csv(pgrp_file, header=None, names=['id','name'])
+            self.pgrpname_dic = {gid:gnme for gid,gnme in zip(pg_df.id, pg_df.name)}
+        
+        # -- generate default
+        else:
+            gids = np.unique(self.edp.get_alldata()['particlegroup'])
+            self.pgrpname_dic = {gid: f'PG{gid}' for gid in gids}
+
+
+
+
+
+    def load_rivname_dic(self, riv_file=None, mfriv_file=None):
+        '''
+
+        Description
+        -----------
+        Fetch and store boundary condition name (ex. river reach) 
+        (boundname) with related river node as list from:
+            - modflow river object (internal, recommended)
+            - `riv_file` if provided (external, recommended)
+            - `mfriv_file` if provided (external, not recommended)
+
+        When bc_names are provided and bc ids are given as auxiliary 
+        variable in the cbc, mixing ratios can be provided with name as labels 
+
+        Parameters
+        -----------
+        - riv_file (str): path to a external text file (.txt, .csv, ..)
+                          without headers, comma separated.
+                          Format:   
+                                234, river_name1
+                                235, river_name1
+                                456, river_name2
+                                ...
+                          Default is None.
+
+        - mfriv_file (str, deprecated): path to a external modflow6 river
+                                        package file (.riv)
+                                        Default is None.
+
+        Returns
+        -----------
+        - reac_dic (dict) : store river reaches with river nodes
                             Format :
                                 {reach_name0: [node_0, node_1, ..],
                                  reach_name1: [node_0, node_1, ..]}
 
-        -----------
         Examples
         -----------
         >>> ta= TrackingAnalyzer(ml, mpsim)
         >>> reach_dic = ta.get_reach_dic()
-        """
 
+        '''
         # ---- Check input access to river data
         err_msg = 'ERROR : Could not access river data.'
-        assert any(obj is not None for obj in [self.ml, self.riv_file]), err_msg
-        
-        # ---- Get river DataFrame from internal river package
+        assert any(obj is not None for obj in [self.ml, riv_file, mfriv_file]), err_msg
+
+        # ---- river DataFrame from external river package
         if self.ml is not None:
-            # -- Convert stress period recarray to DataFrame
             riv_df = pd.DataFrame(self.ml.riv.stress_period_data.get_data(0))
             riv_df['node'] = riv_df['cellid'].apply(lambda cid: cid[1])
-        
-        # ---- Get river DataFrame from external river package
-        elif self.riv_file is not None:
-            # -- Read river package line-by-line
-            with open(self.riv_file,'r') as f:
-                c = f.read()
-                start = 'BEGIN period  1\n'
-                end = 'END period  1\n'
-                lines = c[c.index(start)+len(start) : c.index(end)].splitlines()
 
-            # -- Build river DataFrame
+        # ---- Read data from external text file
+        else:
             cols = ['node', 'boundname']
-            riv_df = pd.DataFrame([np.array(l.strip().split())[[1,-1]] 
-                         for l in lines], columns = cols)
-            riv_df = riv_df.astype({c:dt for c,dt in zip(cols,[int,str])})
-        
-        # ---- Extract reach dictionary
-        reach_dic = riv_df.groupby('boundname').apply(lambda r: r.node.tolist()).to_dict()
 
-        # ---- Return dictionary of reaches
-        return reach_dic
+            if riv_file is not None:
+                riv_df = pd.read_csv(riv_file, header=None, names=cols)
+
+            elif mfriv_file is not None:
+
+                with open(mfriv_file,'r') as f:
+                    c = f.read()
+
+                inter_lookup = ['BEGIN period  1\n',
+                                'END period  1\n' ]
+
+                if all(s in c for s in inter_lookup):
+                    start, end = inter_lookup
+                    lines = c[c.index(start)+len(start) : c.index(end)].splitlines()
+                else:
+                    lines = c.splitlines()
+
+                # -- River DataFrame
+                data = [np.array(l.strip().split()) [[1,-1]] for l in lines]
+                riv_df = pd.DataFrame(data, columns = cols)
+                riv_df = riv_df.astype({c:dt for c,dt in zip(cols,[int,str])})
+
+        # ---- Convert to dictioanry
+        self.rivname_dic = riv_df.groupby('boundname').apply(
+                                    lambda r: r.node.tolist()
+                                        ).to_dict()
 
 
-    def compute_mixing_ratio(self):
+
+
+
+    def compute_mixing_ratio(self, on='river', orient='source'):
         """
         -----------
         Description
@@ -689,58 +742,77 @@ class TrackingAnalyzer():
         -----------
         Parameters
         -----------
-        - agg_dic (dict) : aggregation of reaches names
-                           Format: {'reach_group1' : ['reach1', 'reach2', 'reach3'],
-                                    'reach_group2' : ['reach4', 'reach5']} )
-                           Default is None
-        -----------
+        - on (str/dict) : information to compute mixing ratios.
+                          Can be a:
+                          - keyword :
+                                - 'river': compute mixing ratios for all river cells
+                                - 'reach': compute mixing rations by river reaches
+
+                          - aggregation dictionary:
+                                Format: {'reach_group1' : ['reach1', 'reach2',..],
+                                         'reach_group2' : 'reach4'} )
+                           Default is 'river'.
+        - orient (str): orientation of the resulting mixing ratio DataFrame.
+                        Can be :
+                            - 'source': the water sources as columns
+                            Format :
+                                           src        river    others
+                                        grpnme                    
+                                           r20     0.129836  0.870164
+                                           r21     0.130381  0.869619
+
+                            - 'particle': the particle groups as columns
+                            Format :
+                                     grpnme          r20      r21
+                                        src                    
+                                      river     0.129836  0.130381
+                                     others     0.870164  0.869619
+
+                            Default is 'source'.
+
         Returns
         -----------
         - mr_df  (DataFrame) : computed mixing ratios
-        -----------
+
         Examples
         -----------
         >>> ta= TrackingAnalyzer(ml, mpsim)
-        >>> mr_df = ta.compute_mixing_ratio()
-        """
+        >>> ta.load_rivname_dic(riv_file='rivnames.csv')
+        >>> mr_df = ta.compute_mixing_ratio(on='reach')
 
-        # df of endpoints
+        """
+        # fetch endpoint data
         edp_df = pd.DataFrame(self.edp.get_alldata())
         edp_df = edp_df.astype({'node': int})
-        
+
         # add particle group name
-        if self.pgrpname_dic is not None:
-            edp_df['grpnme'] = [self.pgrpname_dic[gid] 
-                    for gid in edp_df.particlegroup.values]
-        
+        if self.pgrpname_dic is None:
+            warn_msg = 'Particle group names not loaded yet. ' \
+                       'Consider using .load_pgrp_names(), ' \
+                       'default names will be used instead.'
+            warnings.warn(warn_msg, Warning)
+            self.load_pgrp_names()
+
+        edp_df['grpnme'] = [self.pgrpname_dic[gid] 
+                                 for gid in edp_df.particlegroup.values]
 
         # identify endpoints in river cells
         edp_df['endriv'] = edp_df.node.apply(
                 lambda n: n in self.riv_cells)
 
-        # get river leakage 
+        # add river leakage 
         edp_df['riv_leak'] = 0.
         edp_df.loc[edp_df.endriv,'riv_leak'] = edp_df.loc[
                 edp_df.endriv,
                 'node'].apply(
                         lambda n: self.riv_leak_df.loc[n,'q'].sum())
 
-        # get river name 
-        if self.rivname_dic is not None:
-            # keep high flow bc when multiple riv bc applied to the same cell
-            riv_df =  self.riv_leak_df.sort_values('q', ascending=False).drop_duplicates(['node'])
-            riv_df = riv_df.astype({'FID': int})
-            # get river name name from id 
-            riv_df['name'] = [ self.rivname_dic[riv_id] for riv_id in riv_df.FID]
-            # add source name column to edp_df
-            edp_df['src'] = 'OTHERS'
-            edp_df.loc[edp_df.endriv,'src'] = riv_df.loc[edp_df.loc[edp_df.endriv].node,'name'].values
-
-        # get cell inflows from cbc
+        # compute cell inflows from cbc
         edp_df.loc[edp_df.endriv,'rivcell_q'] = edp_df.loc[edp_df.endriv,
                 'node'].apply(self.get_cell_inflows)
 
-        # get particle velocity and merge value into edp_df
+
+        # add particle velocity and merge value into edp_df
         v_df = self.get_part_velocity()
         edp_df.loc[edp_df.particleid,'v'] = v_df.loc[edp_df.particleid,'v']
 
@@ -751,34 +823,49 @@ class TrackingAnalyzer():
         # Grouped weighted average of mixing ratios
         # When they are provided, results are labeled with particle group names 
         # and bc id names, rather than integer ids.
-        if all(d is not None for d in [self.rivname_dic, self.pgrpname_dic]):
-            gb = ['grpnme','src']
 
-        elif self.rivname_dic is not None :
-            gb = ['particleid','src']
+        if on == 'river':
+            # ---- Set basic river names
+            edp_df['src'] = edp_df.endriv.replace({True: 'river', False: 'others'})
+            
+        else:
+            if self.rivname_dic is None:
+                try:
+                    self.load_rivname_dic()
+                except:
+                    raise Exception('River names not loaded yet. ' \
+                                    'Consider using .load_rivname_dic().')
+            
+            # -- Set river names by reaches
+            for rivname, rivnodes in self.rivname_dic.items(): 
+                edp_df.loc[edp_df.node.isin(rivnodes), 'src'] = rivname
+            edp_df.fillna('others',inplace=True)
+            
+            # -- Aggregating reaches
+            agg = {} if on == 'reach' else on
+            for k,v in agg.items(): edp_df['src'].replace(v,k, inplace=True)
 
-        elif self.pgrpname_dic is not None :
-            gb = ['grpnme']
-        else :
-            gb = ['particleid']
+        # -- Compute composite mixing ratios
+        mr = edp_df.groupby(
+                ['grpnme', 'src'], dropna=False).apply(
+                                    lambda d: np.average(d.alpha, weights=d.v))
 
-        mr = edp_df.groupby(gb).apply(lambda d: np.average(d.alpha, weights=d.v))
+        # -- Return mixing ratios as DataFrame
+        mr_df = mr.unstack(level=0, fill_value=0)
+        mr_df.loc['others'] = 1 - mr_df.sum()
 
-        # fill 'others' source
-        if isinstance(mr.index,pd.MultiIndex):
-            grp_ids = set(mr.index.get_level_values(0))
-            for gid in grp_ids: mr.loc[gid]['OTHERS'] = 1. - mr[gid].sum()
-            # return as DataFrame (unpacking multindex)
-            mr_df = mr.unstack(level=0, fill_value=0)
-        else :
-            mr_df = pd.DataFrame(mr)
-        return  mr_df[mr_df.index.notnull()]
+
+        if orient == 'particle':
+            return mr_df
+        elif orient == 'source':
+            return mr_df.T
 
 
 
 
 
-#df['OTHERS'].apply(lambda s: 1 - s.sum(), axis=1)
+
+
 
 
 
