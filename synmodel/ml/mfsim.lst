@@ -2,7 +2,7 @@
                 U.S. GEOLOGICAL SURVEY MODULAR HYDROLOGIC MODEL
                             VERSION 6.1.0 12/12/2019
 
-   MODFLOW 6 compiled Dec 12 2019 13:30:12 with IFORT compiler (ver. 19.0.5)
+  MODFLOW 6 compiled Apr  2 2020 21:54:43 with GFORTRAN compiler (ver. 6.3.0)
 
 This software has been approved for release by the U.S. Geological 
 Survey (USGS). Although the software has been subjected to rigorous 
@@ -31,7 +31,7 @@ Integer Variables
   KIND: 4
   HUGE (largest value): 2147483647
   BIT_SIZE: 32
- 
+
 
  OPENED mfsim.nam
  FILE TYPE:NAM   UNIT 1001   STATUS:OLD                 
@@ -94,11 +94,11 @@ Integer Variables
  PROCESSING IMS OPTIONS
  END OF IMS OPTIONS
  ***UNDER-RELAXATION WILL NOT BE USED***
- 
+
  ***IMS LINEAR SOLVER WILL BE USED***
 
  IMSLINEAR -- UNSTRUCTURED LINEAR SOLUTION PACKAGE, VERSION 8, 04/28/2017
- 
+
  OUTER ITERATION CONVERGENCE CRITERION     (HCLOSE) =    0.100000E-02
  OUTER ITERATION BOUNDARY FLOW RESIDUAL (RCLOSEBND) =    0.100000E+00
  MAXIMUM NUMBER OF OUTER ITERATIONS        (MXITER) =        25
@@ -134,13 +134,13 @@ Integer Variables
                             INITIAL TIME STEP SIZE =   1.000000    
 
  INFORMATION ON VARIABLES STORED IN THE MEMORY MANAGER
- 
+
  Number of allocated integer variables:   530438
  Number of allocated real variables:    599538
  Allocated memory in megabytes:     6.91806    
- 
 
- Run end date and time (yyyy/mm/dd hh:mm:ss): 2022/01/22 14:09:47
- Elapsed run time:  0.432 Seconds
+
+ Run end date and time (yyyy/mm/dd hh:mm:ss): 2022/01/25 17:40:01
+ Elapsed run time:  0.473 Seconds
 
  Normal termination of simulation.
