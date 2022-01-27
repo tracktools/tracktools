@@ -158,96 +158,143 @@ class ParticleGenerator():
         return([lx, ly])
 
 
-
-
-    def gen_points(self, features, dist=None, n = 100, id_field = 'fid', 
-                   fids = None, gen_type='around', export = None):
+    def _import_shp(self,shpname):
         """
         Description
         -----------
-        Generate points around/within provided features
+        Import shapefile as DataFrame with flopy utilities.
         
         Parameters
         -----------
-        features: str or dict of geometries 
-            features can be either a shapefile or
-            dictionary with feature IDs as keys and geometries as items.
-        dist: float 
-            seeding distance of generated points, in geometry length unit
-            If None, infer safe distance from geometry according to intersected
-            cell resolution : 
-                dist = inter_cell_resolution * sqrt(2) (for rectangular grid)
+        - shpname (str) : path to the shapefile
+
+        Returns
+        -----------
+        df (DataFrame) : attribut table of the shapefile
+                         with a additional 'geometry' column
+                         with related shapely geometries. 
+        
+        Examples
+        -----------
+        >>> well_df = _import_shp('wells.shp') 
+
+        """
+        # -- Import flopy spatial utilities
+        try :
+            from flopy.export.shapefile_utils import shp2recarray
+            from flopy.utils.geospatial_utils import GeoSpatialUtil as gsu
+        except ImportError :
+            print('Could not import flopy geospatial utils ...')
+
+        # -- Convert DataFrame with shapely geometries
+        df = pd.DataFrame.from_records(shp2recarray(shpname))
+        df['geometry'] = [gsu(g).shapely for g in df.geometry]
+
+        # -- Return DataFrame
+        return df
+
+
+
+
+def gen_points(self, obj, n = 100, id_field= 'fid', fids=None,  gen_type='around', export = None):
+        """
+        Description
+        -----------
+        Generate  n points on cell edges or a group of cell edges.
+
+        Parameters
+        -----------
+        obj: str or dict of nodes or dict of geometries
+            Location information to seed points.
+            Can be :
+                - path to shapefile
+                    Example: 'gis/wells.shp'
+                - dictionary of nodes
+                    Example: {'w1': [343], 'd1': [521, 522, 523]}
+                - dictionary of shapely geometry, flopy.utils.geometry objects, 
+                                list of vertices, geojson geometry objects, 
+                                shapely.geometry objects
+                    Example: - {'w1': [x_w1, y_w1]} 
+                             - {'d1': shapely.LineString([p1, p2, p3])}
+        id_field: str
+            column name in the shapefile attribut table to fetch geometries names.
+            Default is 'fid'.
         n: int
             number of points
             Default is 100.
-        fid: str or list of str
+        fids: str or list of str
             feature ids to consider
             If None, all features are considered
         export: str
             path to export generated points as shapefile
             If None, nothing is exported
             Default is None.
-                         
+
         Examples
         -----------
         >>> pg = ParticleGenerator(ml)
-        >>> pg.gen_points(dist = 5, n = 500, fids = 'WELL1')
+        >>> pg.gen_points('mywells.shp', n = 500, fids = 'WELL1')
+
         """
-        try : 
-            import geopandas as gpd
+
+        # manage geopandas/shapely import
+        try :
+            from flopy.utils.geospatial_utils import GeoSpatialUtil as gsu
+            from shapely.geometry import Point, LineString, Polygon
+            from shapely.ops import unary_union
         except ImportError :
-            print('Could not load geopandas...')
+            print('Could not import shapely.geometry utils ...')
 
-        # load feature geometries 
-        if isinstance(features, str) :
-            gdf = gpd.read_file(features)
-            gdf['fid'] = gdf[id_field]
-        elif isinstance(features, dict):
-            gdf = gpd.GeoDataFrame(
-                    {'fid' : geometry_dic.keys()},
-                    geometry = list(geometry_dic.values())
-                    )
-        else :
-            print('Check type of features.\
-                    Should be str with shp filename or dict of geometries.')
+        # manage input type
+        ispath = isinstance(obj, str)
+        isdict = isinstance(obj, dict)
 
-        gdf.set_index('fid', drop=False, inplace = True)
-        
-        # subset by feature ids 
-        if fids is not None :
-            if not isinstance(fids, list): fids = [fids]
-            gdf = gdf.loc[gdf[id_field].isin(fids)]
-
-        # building distance dictionary
-        if dist is None:
-            dist_dic = self._infer_dist_dic(gdf)
+        # fetch GeoDataFrame from shapefile or dictionary of geometry
+        if ispath:
+            df = self._import_shp(obj)
+            df['fid'] = df[id_field]
+            if fids is not None :
+                fids = fids if isinstance(fids, list) else [fids]
+                df = df.loc[df['fid'].isin(fids)]
         else:
-            dist_dic = {fid : dist for fid in gdf[id_field]}
+            hasgeom = any(isinstance(list(obj.values())[0],t)
+                      for t in [Point, LineString, Polygon])
+            if np.logical_and(isdict, hasgeom):
+                df = gpd.DataFrame({ 'fid' : obj.keys(),
+                                     'geometry' : [gsu(g).shapely for g in obj.values()]})
+                if fids is not None:
+                    fids = fids if isinstance(fids, list) else [fids]
+                    df = df.loc[df['fid'].isin(fids)]
+            else:
+                df = None
 
-        # initialize output list of gdf(s) containing
-        # generated points for each feature 
-        point_gdf_list = []
-        
-        # ---- iterate over features
-        for fid in gdf.index:
+        # get node dictionary
+        if df is None:
+            node_dic = loc
+        else:
+            # intersect grid
+            df['node'] = df.geometry.apply(lambda g:
+                                                [node[0] for node in self.gi.intersects(g)])
+            node_dic = {k:v for k,v in zip(df.fid, df.node)}
 
-            # feature geometry
-            geom = gdf.loc[fid,'geometry']
 
-            # buffer around feature geometry
-            buff = geom.buffer(dist_dic[fid])
-
-            # generate points 
+        # iterate over feature ids
+        for fid, nodes in node_dic.items():
+            # collect vertices as Point
+            cells_envelope = unary_union([
+                                    np.column_stack(
+                                        [self.vxs[node], self.vys[node]]) 
+                                                for node in nodes ])
+            # generate points
             if gen_type == 'around':
-                # keep external boundary as LineString object
-                line = buff.boundary
+                # Convert to cell contour line
+                line = cells_envelope.boundary
                 # find the distances from origin between starting points along the line
                 distances = np.linspace(0, line.length,n)
-                # starting point atr each distance
+                # starting point at each distance
                 point_list = [line.interpolate(distance) for distance in distances]
             elif gen_type == 'within':
-                point_list= self._gen_points_in_polygon(n, buff, tol)[:n]
-            
+                point_list= self._gen_points_in_polygon(n, cells_envelope)[:n]
             # iterate over points and compute local coordinates
             # in model grid cell coordinate system
             nodes, lxs, lys = [],[],[]
@@ -259,23 +306,25 @@ class ParticleGenerator():
                 nodes.append(node)
                 lxs.append(lx)
                 lys.append(ly)
-            # build gdf for current feature
-            point_gdf = gpd.GeoDataFrame({'gid':fid,'node':nodes,
-                'lx':lxs, 'ly':lys},
-                geometry = point_list)
-            point_gdf['pid'] = np.arange(len(point_gdf))
-            point_gdf_list.append(point_gdf)
+            # build points DataFrame for current feature
+            point_df = gpd.GeoDataFrame({'gid':fid,
+                                          'node':nodes,
+                                          'lx':lxs,
+                                          'ly':lys,
+                                          'geometry': point_list})
+            point_df['pid'] = np.arange(len(point_df))
+            point_df_list.append(point_df)
 
         # concatenate starting points of all feature
-        out_gdf = pd.concat(point_gdf_list, ignore_index=True)
+        out_df = pd.concat(point_df_list, ignore_index=True)
 
         # Add particle data
         if self.particledata is None :
-            self.particledata = out_gdf
+            self.particledata = out_df
 
         else :
             # Manage existing feature (avoid duplicates)
-            for fid in out_gdf['gid'].unique():
+            for fid in out_df['gid'].unique():
                 if fid in self.particledata['gid']:
                     # -- Raise warning message
                     warn_msg = f'Warning : feature `{fid}` already exist. ' \
@@ -285,12 +334,19 @@ class ParticleGenerator():
                     self.remove_particledata(fid)
 
             # Update particle data
-            self.particledata = pd.concat([self.particledata, out_gdf],
+            self.particledata = pd.concat([self.particledata, out_df],
                                           ignore_index=True)
 
         # export points to shapefile if required
         if export is not None:
-            out_gdf.to_file(export)
+            try :
+                from flopy.export.shapefile_utils import recarray2shp
+            except ImportError :
+                print('Could not import flopy.export.shapefile_utils utils ...')
+
+            rec = out_df.drop('geometry').to_records(index=False)
+            geoms = out_df['geometry'].tolist()
+            recarray2shp(rec, geoms, export)
 
 
     def remove_particledata(self, fids=None, verbose=False):
