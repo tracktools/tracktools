@@ -158,46 +158,47 @@ class ParticleGenerator():
         return([lx, ly])
 
 
-    def _infer_dist_dic(self, gdf, tol=0.1):
-        """
-        Description
-        -----------
-        Infer seeding particle distances for each features (drain, wells).
-        The inferred distance corresponds to the diagonal of the largest 
-        cell intersect by the feature geometry.
-        Mesh cells are assumed to be rectangular. 
+    # def _infer_dist_dic(self, gdf, tol=0.1):
+    #     """
+    #     Description
+    #     -----------
+    #     Infer seeding particle distances for each features (drain, wells).
+    #     The inferred distance corresponds to the diagonal of the largest 
+    #     cell intersect by the feature geometry.
+    #     Mesh cells are assumed to be rectangular. 
         
-        Parameters
-        -----------
-        gdf (GeoDataFrame) : spatial DataFrame.
-                             Must contain at least 1 feature with 2 columns
-                             ('fid', 'geometry').
-        tol (float) : distance tolerance
-                      Default is 0.1 meters.
-        Return
-        -----------
-        dist_dic (dict) : infered (safe) distance for each features.
+    #     Parameters
+    #     -----------
+    #     gdf (GeoDataFrame) : spatial DataFrame.
+    #                          Must contain at least 1 feature with 2 columns
+    #                          ('fid', 'geometry').
+    #     tol (float) : distance tolerance
+    #                   Default is 0.1 meters.
+    #     Return
+    #     -----------
+    #     dist_dic (dict) : infered (safe) distance for each features.
                          
-        Examples
-        -----------
-        >>> import geopandas as gpd
-        >>> gdf = gpd.read_file('wells.shp')
-        >>> dist_dic = pg._infer_dist_dic(gdf)
-        """
-        # get rectangular diagonal
-        get_mdist = lambda xs, ys : np.sqrt((xs[2]-xs[0])**2 + (ys[2]-ys[0])**2)
+    #     Examples
+    #     -----------
+    #     >>> import geopandas as gpd
+    #     >>> gdf = gpd.read_file('wells.shp')
+    #     >>> dist_dic = pg._infer_dist_dic(gdf)
+    #     """
+    #     # get rectangular diagonal
+    #     get_mdist = lambda xs, ys : np.sqrt((xs[2]-xs[0])**2 + (ys[2]-ys[0])**2)
 
-        # ---- Building distance dictionary with vertices distances maximum distance
-        dist_dic = {}
-        for fid, g in zip(gdf['fid'], gdf['geometry']):
-            cellids = self.gi.intersect(g)['cellids']
-            # ---- Compute vertices distances
-            distances = [get_mdist(self.vxs[cid], self.vys[cid])
-                            for cid in cellids]
-            dist_dic[fid] = max(distances) + tol
+    #     # ---- Building distance dictionary with vertices distances maximum distance
+    #     dist_dic = {}
+    #     for fid, g in zip(gdf['fid'], gdf['geometry']):
+    #         cellids = self.gi.intersect(g)['cellids']
+    #         # ---- Compute vertices distances
+    #         distances = [get_mdist(self.vxs[cid], self.vys[cid])
+    #                         for cid in cellids]
+    #         dist_dic[fid] = max(distances) + tol
 
-        # ---- Return distances
-        return dist_dic
+    #     # ---- Return distances
+    #     return dist_dic
+
 
 
 

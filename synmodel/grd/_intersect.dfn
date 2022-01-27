@@ -3,7 +3,7 @@ LOAD quadtreegrid.dfn
 BEGIN GRID_INTERSECTION intersect
   GRID = quadtreegrid
   LAYER = 1
-  SHAPEFILE = ../gis/wells
+  SHAPEFILE = ..\gis\wells
   FEATURE_TYPE = point
   OUTPUT_FILE = intersection.ifo
 END GRID_INTERSECTION intersect
