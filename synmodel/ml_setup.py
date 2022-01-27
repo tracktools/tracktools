@@ -77,13 +77,17 @@ shpfiles = [f for f in os.listdir(os.path.join(gis_dir)) if f.endswith('.shp')]
 shp_dic = {f.split('.')[0] : os.path.join(gis_dir,f) for f in shpfiles}
 
 # refine base grid 
-refine_dic = {'river' : ['line', shp_dic['river']],
-              'drain' : ['line', shp_dic['drain']],
-              'wells' : ['point', shp_dic['wells']]}
-for ref_id, data in refine_dic.items():
+lines_refine_dic = {'river' : ['line', shp_dic['river']],
+              'drain' : ['line', shp_dic['drain']]}
+
+for ref_id, data in lines_refine_dic.items():
         ftype, path = data
         path = os.path.join('..',path)
         g.add_refinement_features(path.replace('.shp',''), ftype, 2, range(nlay))
+
+for i,d in enumerate([25,50,100]):
+    buf = gpd.read_file(shp_dic['wells']).buffer(d).to_list()
+    g.add_refinement_features(buf, 'polygon', i, range(nlay))
 
 # build new grid 
 g.build()
@@ -282,11 +286,10 @@ sim.write_simulation()
 # ---- Run model simulation
 success, buff = sim.run_simulation()
 
-'''
 #-------------------------------------------------
 # ----  PART 4 : PLOT SIMULATED HEAD
 #-------------------------------------------------
-
+'''
 # ---- Set required layer
 ilay = 0
 
@@ -324,7 +327,7 @@ ax.set_title('Model Layer {}; hmin={:6.2f}, hmax={:6.2f}'.format(ilay + 1, hmin,
 fontsize = 12)
 
 # ---- Plot grid
-pmv.plot_grid(lw = 0.1)
+pmv.plot_grid(lw = 0.5,color='black')
 
 plt.show()
 '''

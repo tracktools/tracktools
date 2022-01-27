@@ -184,7 +184,7 @@ class ParticleGenerator():
         >>> gdf = gpd.read_file('wells.shp')
         >>> dist_dic = pg._infer_dist_dic(gdf)
         """
-        # get rectangular diagonal
+        # get diagonal of a rectangular cell
         get_mdist = lambda xs, ys : np.sqrt((xs[2]-xs[0])**2 + (ys[2]-ys[0])**2)
 
         # ---- Building distance dictionary with vertices distances maximum distance
