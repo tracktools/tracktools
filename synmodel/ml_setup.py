@@ -187,7 +187,7 @@ ic = flopy.mf6.ModflowGwfic(gwf, strt=30) # m
 xc, yc, zc = map(np.array, gwf.modelgrid.xyzcellcenters)
 logk = srf.unstructured([xc, yc]) + 4.2
 k = np.power(10,-logk) # m/s
-
+k=10**-4.2
 npf = flopy.mf6.ModflowGwfnpf(gwf,   icelltype  = 0,           
                                      k          = k,
                                      save_flows = True,
@@ -246,12 +246,12 @@ for reach_id, nodes in icpl_dic['river'].items():
         # where xi is the normalized curvilinear distance (between 0and 1) of 
         # the projection of the cell center on the reach
         for node in nodes:
-                xc, yc = g.get_center(node)
-                xi = (riv_line.length - riv_line.project(Point(xc,yc))) / riv_line.length
-                stage = xi * h_up + (1 - xi) * h_down
-                zbot = stage - 2   # zbot is set to 2meters below the river stage
-                cell_riv_data = [(0, node), stage, c_riv, zbot, reach_id]
-                riv_spd.append(cell_riv_data)
+            xc, yc = g.get_center(node)
+            xi = (riv_line.length - riv_line.project(Point(xc,yc))) / riv_line.length
+            stage = xi * h_up + (1 - xi) * h_down
+            zbot = stage - 2   # zbot is set to 2meters below the river stage
+            cell_riv_data = [(0, node), stage, c_riv, zbot, reach_id]
+            riv_spd.append(cell_riv_data)
 
 # Build RIV package
 riv = flopy.mf6.ModflowGwfriv(gwf,   stress_period_data = riv_spd,

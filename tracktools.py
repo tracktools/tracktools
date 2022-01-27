@@ -207,36 +207,40 @@ class ParticleGenerator():
 
 
 
-
     def gen_points(self, obj, n = 100, id_field= 'fid', fids=None,  gen_type='around', export = None):
             """
             Description
             -----------
-            Generate  n points on cell edges or a group of cell edges.
+            Generate n points around model cells, or groups of adjacent model cells.
+            Models cell(s) can also be collected by spatial intersection when obj 
+            is a dict of geometry or a shapefile.
+            Dictionary keys or feature ids of obj will be used as particle group
+            names.
 
             Parameters
             -----------
             obj: str or dict of nodes or dict of geometries
-                Location information to seed points.
                 Can be :
-                    - path to shapefile
-                        Example: 'gis/wells.shp'
-                    - dictionary of nodes
+                    - dictionary of model node lists
                         Example: {'w1': [343], 'd1': [521, 522, 523]}
                     - dictionary of shapely geometry, flopy.utils.geometry objects, 
                                     list of vertices, geojson geometry objects, 
                                     shapely.geometry objects
                         Example: - {'w1': [x_w1, y_w1]} 
                                  - {'d1': shapely.LineString([p1, p2, p3])}
-            id_field: str
-                column name in the shapefile attribut table to fetch geometries names.
-                Default is 'fid'.
+                    - path to shapefile
+                        Example: 'gis/wells.shp'
             n: int
                 number of points
                 Default is 100.
+            id_field: str
+                column name in the shapefile attribute table to fetch geometries names.
+                Default is 'fid'.
+                Only effective when obj is a shapefile
             fids: str or list of str
                 feature ids to consider
                 If None, all features are considered
+                Only effective when obj is a shapefile
             export: str
                 path to export generated points as shapefile
                 If None, nothing is exported
@@ -249,7 +253,6 @@ class ParticleGenerator():
 
             """
 
-            # manage geopandas/shapely import
             try :
                 from flopy.utils.geospatial_utils import GeoSpatialUtil as gsu
                 from shapely.geometry import Point, LineString, Polygon
@@ -293,7 +296,7 @@ class ParticleGenerator():
             # iterate over feature ids
             point_df_list = []
             for fid, nodes in node_dic.items():
-                # collect vertices as Point
+                # merge cells and collect cell vertices as Point
                 cells_envelope = unary_union([
                                             Polygon(np.column_stack(
                                                         [self.vxs[node], self.vys[node]])
@@ -329,26 +332,24 @@ class ParticleGenerator():
                                             'geometry': point_list})
                 point_df_list.append(point_df)
 
-            # concatenate starting points of all feature
+            # concatenate point groups 
             out_df = pd.concat(point_df_list, ignore_index=True)
 
-            # Add particle data
+            # create or set particle data
             if self.particledata is None :
                 self.particledata = out_df
                 self._update_pid()
 
             else :
-                # Manage existing feature (avoid duplicates)
+                # check for duplicatess
                 for fid in out_df['gid'].unique():
                     if fid in self.particledata['gid']:
-                        # -- Raise warning message
                         warn_msg = f'Warning : feature `{fid}` already exist. ' \
                                    'It will be overwrited.'
                         warnings.warn(warn_msg, Warning)
-                        # -- Remove existing set of observation
                         self.remove_particledata(fid)
 
-                # Update particle data
+                # update particle data
                 self.particledata = pd.concat([self.particledata, out_df],
                                                ignore_index=True)
                 self._update_pid()
@@ -364,8 +365,6 @@ class ParticleGenerator():
                 rec = out_df.drop('geometry', axis=1).to_records(index=False)
                 geoms = GeometryCollection(out_df['geometry'].tolist())
                 recarray2shp(recarray=rec, geoms=geoms, shpname=export)
-
-
 
 
     def remove_particledata(self, fids=None, verbose=False):
@@ -473,11 +472,6 @@ class ParticleGenerator():
 
         return pgrp_list
     
-
-
-
-
-
 
 
 class TrackingAnalyzer():
@@ -678,9 +672,6 @@ class TrackingAnalyzer():
             self.pgrpname_dic = {gid: f'PG{gid}' for gid in gids}
 
 
-
-
-
     def load_rivname_dic(self, riv_file=None, mfriv_file=None):
         '''
 
@@ -762,8 +753,6 @@ class TrackingAnalyzer():
         self.rivname_dic = riv_df.groupby('boundname').apply(
                                     lambda r: r.node.tolist()
                                         ).to_dict()
-
-
 
 
 
@@ -895,10 +884,6 @@ class TrackingAnalyzer():
             return mr_df
         elif orient == 'source':
             return mr_df.T
-
-
-
-
 
 
 
