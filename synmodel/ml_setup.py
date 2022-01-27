@@ -1,17 +1,19 @@
 """         
         Script : set up synthetic steady state model 
 """
-
 import os, sys
 import numpy as np
 import pandas as pd
+
+from shapely.geometry import Point
+import gstools as gs
+
+import matplotlib.pyplot as plt
+
 import flopy
 from flopy.utils.gridgen import Gridgen
-import geopandas as gpd
-from shapely.geometry import Point
-from shapely import speedups
-import matplotlib.pyplot as plt
-import gstools as gs
+from flopy.export.shapefile_utils import shp2recarray
+from flopy.utils.geospatial_utils import GeoSpatialUtil as gsu
 
 #-------------------------------------------------
 # ----  PART 1 : SETTINGS
@@ -86,8 +88,15 @@ for ref_id, data in lines_refine_dic.items():
         g.add_refinement_features(path.replace('.shp',''), ftype, 2, range(nlay))
 
 for i,d in enumerate([25,50,100]):
-    buf = gpd.read_file(shp_dic['wells']).buffer(d).to_list()
-    g.add_refinement_features(buf, 'polygon', i, range(nlay))
+    # load well shapefile
+    wells_df = pd.DataFrame(shp2recarray(shp_dic['wells']))
+    # convert flopy geometries to shapely
+    wells_df['geometry'] = [gsu(g).shapely for g in wells_df.geometry]
+    # get buffers around wells at distance d
+    buf = [g.buffer(d) for g in wells_df.geometry]
+    # add refinement at level i+1
+    g.add_refinement_features(buf, 'polygon', i+1, range(nlay))
+
 
 # build new grid 
 g.build()
@@ -223,15 +232,16 @@ drn = flopy.mf6.ModflowGwfdrn(gwf,   stress_period_data = drn_spd,
 c_riv = 1e-3   # m²/s
 
 # Load river shapefile as GeoDataFrame
-riv_gdf = gpd.read_file(shp_dic['river'])
-riv_gdf.set_index('FID', inplace = True)
+riv_df = pd.DataFrame(shp2recarray(shp_dic['river']))
+riv_df['geometry'] = [gsu(g).shapely for g in riv_df.geometry]
+riv_df.set_index('FID', inplace = True)
 
 # riv stress period data: [cellid, stage, cond, rbot, aux, boundname]
 riv_spd = []
 for reach_id, nodes in icpl_dic['river'].items():
         # Get river stages upstream and downstream
-        h_up, h_down = riv_gdf.loc[reach_id,['h_up', 'h_down']].astype(np.float)
-        riv_line = riv_gdf.loc[reach_id,'geometry']
+        h_up, h_down = riv_df.loc[reach_id,['h_up', 'h_down']].astype(np.float)
+        riv_line = riv_df.loc[reach_id,'geometry']
         # Get river stage for each cell as stage = xi * h_up + (1 - xi) * h_down
         # where xi is the normalized curvilinear distance (between 0and 1) of 
         # the projection of the cell center on the reach
