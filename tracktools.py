@@ -2,17 +2,18 @@ import os
 import numpy as np
 import warnings
 
-
 try : 
     import pandas as pd
 except ImportError :
     print('Could not load pandas...')
 
 
-# TODO : fix distance function for vertices  
-# TODO : check structured grid support 
-# TODO : check generation from geometries (Pierre)
-# TODO : update zone vulnerability 
+
+base_particledata = pd.DataFrame(
+                        columns=['fid', 'node', 'lx', 
+                                 'ly', 'pid', 'geometry'])
+
+
 
 class ParticleGenerator():
     """ 
@@ -65,7 +66,7 @@ class ParticleGenerator():
 
         # initialize particle data as list, will be converted to
         # geopandas df after first particle generation 
-        self.particledata = None
+        self.particledata = base_particledata
 
 
     def _gen_points_in_polygon(self, n_point, polygon, tol = 0.1):
@@ -196,14 +197,58 @@ class ParticleGenerator():
 
 
 
-    def _update_pid(self):
+    def add_particledata(self, particledata):
+        """
+        """
+        # warn/remove duplicates
+        fids =  particledata['fid'].unique()
+        self.particledata.drop(self.particledata.query('fid in @fids').index, inplace=True)
+        # concatenate clean particle data with new one
+        self.particledata = pd.concat(
+                                [self.particledata, particledata],
+                                     ignore_index=True)
+        # update particle ids
+        self.particledata['pid'] = np.arange(len(self.particledata))
+
+
+                
+
+    def remove_particledata(self, fids=None, verbose=False):
         """
         Description
         -----------
-        Update particle id after manipulation (adding/removing)
+        Remove particle data from ids.
+        
+        Parameters
+        -----------
+        fids : str, list of str
+            features names to removed from particledata.
+            If None, all particledata are removed.
+            Default is None.
+
+        verbose : bool
+            print removed features names.
+        
+        Examples
+        -----------
+        >>> pg = ParticleGenerator(ml = ml)
+        >>> pg.gen_points('wells.shp', dist=d, n_part = n_part)
+        >>> pg.removed_particledata(fids = ['well1', 'well2'], verbose =True)
         """
-        if self.particledata is not None:
-            self.particledata['pid'] = self.particledata.index
+        # Remove all particle data
+        if fids is None:
+            self.particledata = base_particledata
+            if verbose:
+                print('All features had been removed.')
+        # Remove selected particle data
+        else:
+            _fids = [fids] if isinstance(fids, str) else fids
+            self.particledata.drop(self.particledata.query('fid in @_fids').index, inplace=True)
+            if verbose:
+                print('\n'.join([f'Feature `{fid}` had been removed.' for fid in _fids]))
+        # update particle ids
+        self.particledata['pid'] = np.arange(len(self.particledata))
+
 
 
 
@@ -326,7 +371,7 @@ class ParticleGenerator():
                     lxs.append(lx)
                     lys.append(ly)
                 # build points DataFrame for current feature
-                point_df =  pd.DataFrame({  'gid':fid,
+                point_df =  pd.DataFrame({  'fid':fid,
                                             'node':nodes,
                                             'lx':lxs,
                                             'ly':lys,
@@ -335,26 +380,8 @@ class ParticleGenerator():
                 point_df_list.append(point_df)
 
             # concatenate point groups 
-            out_df = pd.concat(point_df_list, ignore_index=True)
-
-            # create or set particle data
-            if self.particledata is None :
-                self.particledata = out_df
-                self._update_pid()
-
-            else :
-                # check for duplicatess
-                for fid in out_df['gid'].unique():
-                    if fid in self.particledata['gid']:
-                        warn_msg = f'Warning : feature `{fid}` already exist. ' \
-                                   'It will be overwrited.'
-                        warnings.warn(warn_msg, Warning)
-                        self.remove_particledata(fid)
-
-                # update particle data
-                self.particledata = pd.concat([self.particledata, out_df],
-                                               ignore_index=True)
-                self._update_pid()
+            particledata = pd.concat(point_df_list, ignore_index=True)
+            self.add_particledata(particledata)
 
             # export points to shapefile if required
             if export is not None:
@@ -364,44 +391,9 @@ class ParticleGenerator():
                 except ImportError :
                     print('Could not import flopy.export.shapefile_utils utils ...')
 
-                rec = out_df.drop('geometry', axis=1).to_records(index=False)
-                geoms = GeometryCollection(out_df['geometry'].tolist())
+                rec = particledata.drop('geometry', axis=1).to_records(index=False)
+                geoms = GeometryCollection(particledata['geometry'].tolist())
                 recarray2shp(recarray=rec, geoms=geoms, shpname=export)
-
-
-    def remove_particledata(self, fids=None, verbose=False):
-        """
-        Description
-        -----------
-        Remove particle data from ids.
-        
-        Parameters
-        -----------
-        fids : str, list of str
-            features names to removed from particledata.
-            If None, all particledata are removed.
-            Default is None.
-
-        verbose : bool
-            print removed features names.
-        
-        Examples
-        -----------
-        >>> pg = ParticleGenerator(ml = ml)
-        >>> pg.gen_points('wells.shp', dist=d, n_part = n_part)
-        >>> pg.removed_particledata(fids = ['well1', 'well2'], verbose =True)
-        """
-        if fids is None:
-            self.particledata = None
-            if verbose:
-                print('All features had been removed.')
-        else:
-            _fids = [fids] if isinstance(fids, str) else fids
-            self.particledata = self.particledata.query('gid not in @_fids')
-            if verbose:
-                print('\n'.join([f'Feature `{gid}` had been removed.' for gid in _fids]))
-
-        self._update_pid()
 
 
 
@@ -439,7 +431,7 @@ class ParticleGenerator():
         # when pgids is None, all particle groups considered
         if pgids is None:
             # all groups considered 
-            pgids = list(set(self.particledata.gid))
+            pgids = list(set(self.particledata.fid))
         
         # when a single pgid is provided
         if not isinstance(pgids, list):
@@ -451,7 +443,7 @@ class ParticleGenerator():
         # iterate of particle group ids 
         for pgid in pgids:
             # subset by group id(s)
-            subset = self.particledata[self.particledata['gid']==pgid]
+            subset = self.particledata[self.particledata['fid']==pgid]
             if len(subset)==0:
                 print(f'No particle for group id {pgid}')
                 continue

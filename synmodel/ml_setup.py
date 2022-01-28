@@ -253,7 +253,7 @@ drn = flopy.mf6.ModflowGwfdrn(gwf,   stress_period_data = drn_spd,
 # Set river conductance and hydraulic slope 
 c_riv = 1e-3   # m²/s
 
-# Load river shapefile as GeoDataFrame
+# Load river shapefile 
 riv_df = pd.DataFrame(shp2recarray(shp_dic['river']))
 riv_df['geometry'] = [gsu(g).shapely for g in riv_df.geometry]
 riv_df.set_index('FID', inplace = True)
