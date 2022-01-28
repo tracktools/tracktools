@@ -726,7 +726,7 @@ class TrackingAnalyzer():
             riv_df['node'] = riv_df['cellid'].apply(lambda cid: cid[1])
 
         # ---- Read data from external text file
-        else:
+        else :
             cols = ['node', 'boundname']
 
             if riv_file is not None:
@@ -750,6 +750,9 @@ class TrackingAnalyzer():
                 data = [np.array(l.strip().split()) [[1,-1]] for l in lines]
                 riv_df = pd.DataFrame(data, columns = cols)
                 riv_df = riv_df.astype({c:dt for c,dt in zip(cols,[int,str])})
+            
+            # back to 0-based 
+            riv_df['node']=riv_df.node -1
 
         # ---- Convert to dictioanry
         self.rivname_dic = riv_df.groupby('boundname').apply(
@@ -758,7 +761,7 @@ class TrackingAnalyzer():
 
 
 
-    def compute_mixing_ratio(self, on='river', orient='source'):
+    def compute_mixing_ratio(self, on='river'):
         """
         -----------
         Description
@@ -814,9 +817,9 @@ class TrackingAnalyzer():
 
         # add particle group name
         if self.pgrpname_dic is None:
-            warn_msg = 'Particle group names not loaded yet. ' \
-                       'Consider using .load_pgrp_names(), ' \
-                       'default names will be used instead.'
+            warn_msg = 'Particle group names not loaded, ' \
+                       'default names will be used.'\
+                       'Consider using load_pgrp_names(). ' 
             warnings.warn(warn_msg, Warning)
             self.load_pgrp_names()
 
@@ -824,8 +827,7 @@ class TrackingAnalyzer():
                                  for gid in edp_df.particlegroup.values]
 
         # identify endpoints in river cells
-        edp_df['endriv'] = edp_df.node.apply(
-                lambda n: n in self.riv_cells)
+        edp_df['endriv'] = edp_df.node.apply(lambda n: n in self.riv_cells)
 
         # add river leakage 
         edp_df['riv_leak'] = 0.
@@ -838,11 +840,10 @@ class TrackingAnalyzer():
         edp_df.loc[edp_df.endriv,'rivcell_q'] = edp_df.loc[edp_df.endriv,
                 'node'].apply(self.get_cell_inflows)
 
-
         # add particle velocity and merge value into edp_df
         v_df = self.get_part_velocity()
         edp_df.loc[edp_df.particleid,'v'] = v_df.loc[edp_df.particleid,'v']
-
+        
         # compute particle mixing ratio
         edp_df['alpha'] = edp_df['riv_leak']/ (edp_df['riv_leak']+edp_df['rivcell_q'])
         edp_df.loc[edp_df.alpha.isnull(),'alpha']=0.
@@ -852,44 +853,40 @@ class TrackingAnalyzer():
         # and bc id names, rather than integer ids.
 
         if on == 'river':
-            # ---- Set basic river names
-            edp_df['src'] = edp_df.endriv.replace({True: 'river', False: 'others'})
+            # set basic river names
+            edp_df['src'] = edp_df.endriv.replace({True : 'river', False : 'others'})
             
-        else:
+        else :
             if self.rivname_dic is None:
                 try:
                     self.load_rivname_dic()
                 except:
-                    raise Exception('River names not loaded yet. ' \
+                    raise Exception('River names not loaded. ' \
                                     'Consider using .load_rivname_dic().')
             
-            # -- Set river names by reaches
+            # set river names by reaches
             for rivname, rivnodes in self.rivname_dic.items(): 
                 edp_df.loc[edp_df.node.isin(rivnodes), 'src'] = rivname
-            edp_df.fillna('others',inplace=True)
+            edp_df['src'].fillna('others', inplace=True)
             
-            # -- Aggregating reaches
+            # aggregate by reaches
             agg = {} if on == 'reach' else on
             for k,v in agg.items(): edp_df['src'].replace(v,k, inplace=True)
 
-        # -- Compute composite mixing ratios
-        mr = edp_df.groupby(
-                ['grpnme', 'src'], dropna=False).apply(
-                                    lambda d: np.average(d.alpha, weights=d.v))
 
-        # -- Return mixing ratios as DataFrame
+        # compute group mixing ratios from weighted average of particle mixing ratios
+        contrib = edp_df.groupby(
+                ['grpnme', 'src'], dropna=False).apply(
+                                    lambda d: np.sum(d.alpha*d.v))
+        mr = contrib/edp_df.groupby(
+                ['grpnme'], dropna=False).apply(
+                                    lambda d: np.sum(d.v))
+
+        # return mixing ratios as DataFrame
         mr_df = mr.unstack(level=0, fill_value=0)
         mr_df.loc['others'] = 1 - mr_df.sum()
 
-
-        if orient == 'particle':
-            return mr_df
-        elif orient == 'source':
-            return mr_df.T
-
-
-
-
+        return mr_df.T
 
 
 class SSZV():

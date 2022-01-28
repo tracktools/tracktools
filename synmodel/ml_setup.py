@@ -78,24 +78,29 @@ g = Gridgen(bdis, exe_name = gridgen_exe, model_ws=grd_dir)
 shpfiles = [f for f in os.listdir(os.path.join(gis_dir)) if f.endswith('.shp')]
 shp_dic = {f.split('.')[0] : os.path.join(gis_dir,f) for f in shpfiles}
 
-# refine base grid 
-lines_refine_dic = {'river' : ['line', shp_dic['river']],
-              'drain' : ['line', shp_dic['drain']]}
+# refinement features 
+refine_dic = {'river' : ['line', shp_dic['river']],
+              'drain' : ['line', shp_dic['drain']],
+              'wells':['point',shp_dic['wells']]}
 
-for ref_id, data in lines_refine_dic.items():
-        ftype, path = data
-        path = os.path.join('..',path)
-        g.add_refinement_features(path.replace('.shp',''), ftype, 2, range(nlay))
+# buffer distance around refinement features (2 levels)
+refine_dist = [50.,100.] # m
 
-for i,d in enumerate([25,50,100]):
-    # load well shapefile
-    wells_df = pd.DataFrame(shp2recarray(shp_dic['wells']))
-    # convert flopy geometries to shapely
-    wells_df['geometry'] = [gsu(g).shapely for g in wells_df.geometry]
-    # get buffers around wells at distance d
-    buf = [g.buffer(d) for g in wells_df.geometry]
-    # add refinement at level i+1
-    g.add_refinement_features(buf, 'polygon', i+1, range(nlay))
+# iterate over refinement features 
+for shp_id, shp_data in refine_dic.items():
+    #shp_id = 'river'
+    #shp_data = refine_dic[shp_id]
+    ftype, path = shp_data
+    # iterate over buffer distance 
+    for i,d in enumerate(refine_dist):
+        # load shapefile
+        shp_df = pd.DataFrame(shp2recarray(shp_dic[shp_id]))
+        # convert flopy geometries to shapely
+        shp_df['geometry'] = [gsu(g).shapely for g in shp_df.geometry]
+        # get buffers around feature at distance d
+        buf = [g.buffer(d) for g in shp_df.geometry]
+        # add refinement at level i+1
+        g.add_refinement_features(buf, 'polygon', i+1, range(nlay))
 
 
 # build new grid 
@@ -107,8 +112,10 @@ gridprops = g.get_gridprops_disv()
 # --- perform intersections
 
 # input shapefiles
-inter_list = ['drain', 'chd', 'river','wells']
+inter_list = ['ghb','drain','chd','river','wells']
+
 geoms_dic =  {  shp_dic['drain']: 'line',
+                shp_dic['ghb']: 'line',
                 shp_dic['chd']: 'line',
                 shp_dic['river']: 'line',
                 shp_dic['wells']: 'point' }
@@ -193,10 +200,25 @@ npf = flopy.mf6.ModflowGwfnpf(gwf,   icelltype  = 0,
                                      save_flows = True,
                                      save_specific_discharge = True)  
 
-# CHD package
+# GHB package (northern BC)
 
-# Build ghb stress period data: [cellid, shead, ehead, aux, boundname]
-head = 20   # m
+head = 30.   # m
+ghb_cond = 1e-3 # m2/s
+ghb_spd = []
+for ghb_id, nodes in icpl_dic['ghb'].items():
+    for node in nodes:
+        # [cellid, bhead, cond, boundname] 
+        cell_ghb_data = [(0, node), head, ghb_cond, ghb_id]                 
+        ghb_spd.append(cell_ghb_data)  
+
+ghb = flopy.mf6.ModflowGwfghb(gwf, stress_period_data = ghb_spd,          
+                                         maxbound = len(ghb_spd),
+                                         boundnames = True,
+                                         save_flows = True)
+
+# CHD package (southern BC)
+
+head = 20.   # m
 chd_spd = []
 for chd_id, nodes in icpl_dic['chd'].items():
     for node in nodes:
@@ -276,9 +298,9 @@ wel = flopy.mf6.modflow.mfgwfwel.ModflowGwfwel(gwf, stress_period_data = well_sp
                                                     boundnames         = True)
 
 # RCH Package
-rpy = 300  # mm/y
-rech = rpy / ((365*24*3600) * (1000)) # mm/y to m/s
-rcha = flopy.mf6.ModflowGwfrcha(gwf, recharge = rech, save_flows = False)
+#rpy = 300  # mm/y
+#rech = rpy / ((365*24*3600) * (1000)) # mm/y to m/s
+#rcha = flopy.mf6.ModflowGwfrcha(gwf, recharge = rech, save_flows = False)
 
 # OC Package
 oc_rec_list =[('HEAD', 'LAST'), ('BUDGET', 'LAST')]
