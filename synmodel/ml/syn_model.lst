@@ -3,7 +3,7 @@
                           GROUNDWATER FLOW MODEL (GWF)
                             VERSION 6.1.0 12/12/2019
 
-  MODFLOW 6 compiled Apr  2 2020 21:54:43 with GFORTRAN compiler (ver. 6.3.0)
+   MODFLOW 6 compiled Dec 12 2019 13:30:12 with IFORT compiler (ver. 19.0.5)
 
 This software has been approved for release by the U.S. Geological 
 Survey (USGS). Although the software has been subjected to rigorous 
@@ -194,9 +194,9 @@ Precision of REAL variables: 15
  END PROCESSING GRIDDATA
     BINARY GRID INFORMATION WILL BE WRITTEN TO:
       UNIT NUMBER: 1015
-      FILE NAME: ./syn_model.disv.grb
+      FILE NAME: E:\Mhyqadeau\article\particle_tracking_vulnerability\synmodel\ml\syn_model.disv.grb
 
- OPENED ./syn_model.disv.grb
+ OPENED E:\Mhyqadeau\article\particle_tracking_vulnerability\synmodel\ml\syn_model.disv.grb
  FILE TYPE:DATA(BINARY)   UNIT 1015   STATUS:REPLACE             
  FORMAT:UNFORMATTED            ACCESS:STREAM              
  ACTION:READWRITE           

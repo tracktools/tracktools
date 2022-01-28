@@ -275,7 +275,7 @@ class ParticleGenerator():
                 hasgeom = any(isinstance(list(obj.values())[0],t)
                           for t in [Point, LineString, Polygon])
                 if np.logical_and(isdict, hasgeom):
-                    df = gpd.DataFrame({ 'fid' : obj.keys(),
+                    df = pd.DataFrame({ 'fid' : obj.keys(),
                                          'geometry' : [gsu(g).shapely for g in obj.values()]})
                     if fids is not None:
                         fids = fids if isinstance(fids, list) else [fids]
@@ -285,7 +285,7 @@ class ParticleGenerator():
 
             # get node dictionary
             if df is None:
-                node_dic = loc
+                node_dic = obj
             else:
                 # intersect grid
                 df['node'] = df.geometry.apply(lambda g:
@@ -296,6 +296,8 @@ class ParticleGenerator():
             # iterate over feature ids
             point_df_list = []
             for fid, nodes in node_dic.items():
+                if isinstance(nodes, int):
+                    nodes = [nodes]
                 # merge cells and collect cell vertices as Point
                 cells_envelope = unary_union([
                                             Polygon(np.column_stack(
