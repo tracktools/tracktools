@@ -758,7 +758,15 @@ class TrackingAnalyzer():
                                 Format: {'reach_group1' : ['reach1', 'reach2',..],
                                          'reach_group2' : 'reach4'} )
                            Default is 'river'.
+        
+        - edp_cell_budget (bool): whatever considering the real contribution to 
+                                  the unitary mixing ratio using the volumetric
+                                  leakage flows of river cell's endpoint.
+                                  Default is True.
 
+        - v_weight (bool) : whatever weighting the mixing ratio by the arrival
+                            particle's velocity.
+                            Default is True.
 
         Returns
         -----------
