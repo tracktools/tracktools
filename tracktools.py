@@ -1,3 +1,5 @@
+
+
 import os
 import numpy as np
 import warnings
@@ -170,7 +172,6 @@ class ParticleGenerator():
         Parameters
         -----------
         - shpname (str) : path to the shapefile
-
         Returns
         -----------
         df (DataFrame) : attribut table of the shapefile
@@ -180,7 +181,6 @@ class ParticleGenerator():
         Examples
         -----------
         >>> well_df = _import_shp('wells.shp') 
-
         """
         # -- Import flopy spatial utilities
         try :
@@ -227,7 +227,6 @@ class ParticleGenerator():
             features names to removed from particledata.
             If None, all particledata are removed.
             Default is None.
-
         verbose : bool
             print removed features names.
         
@@ -263,7 +262,6 @@ class ParticleGenerator():
             is a dict of geometry or a shapefile.
             Dictionary keys or feature ids of obj will be used as particle group
             names.
-
             Parameters
             -----------
             obj: str or dict of nodes or dict of geometries
@@ -292,12 +290,10 @@ class ParticleGenerator():
                 path to export generated points as shapefile
                 If None, nothing is exported
                 Default is None.
-
             Examples
             -----------
             >>> pg = ParticleGenerator(ml)
             >>> pg.gen_points('mywells.shp', n = 500, fids = 'WELL1')
-
             """
 
             try :
@@ -405,7 +401,6 @@ class ParticleGenerator():
         -----------
         Get list of FloPy ParticleGroup from particledata
         Optionally writes group id file for post-processing.
-
         Parameters
         -----------
         pgids : list of str
@@ -413,7 +408,6 @@ class ParticleGenerator():
         pgid_file : str
             path to create a simple text file with particle 
             groups names and and numerix ids.
-
         Returns
         -----------
         List of flopy.modpath.mp7particlegroup.ParticleGroup
@@ -626,8 +620,6 @@ class TrackingAnalyzer():
         Fetch and store particle group names from:
             - modpath7 simulation object (internal, recommended)
             - `pgrp_file` if provided (external, recommended)
-
-
         Parameters
         -----------
         - pgrp_file (str): path to a external text file (.txt, .csv, ..)
@@ -638,19 +630,15 @@ class TrackingAnalyzer():
                                 3, pg_name2
                                 ...
                           Default is None.
-
-
         Returns
         -----------
         - pgrpname_dic (dict) : store particle group names with their numerical id
                                 Format :
                                     {pgid_0: pg_name0, pgid_1: pg_name1, ..}
-
         Examples
         -----------
         >>> ta = TrackingAnalyzer(ml, mpsim)
         >>> reach_dic = ta.load_pgrp_names()
-
         '''
         # -- from internal modpath simulation 
         if self.mpsim is not None:
@@ -670,7 +658,6 @@ class TrackingAnalyzer():
 
     def load_rivname_dic(self, riv_file=None, mfriv_file=None):
         '''
-
         Description
         -----------
         Fetch and store boundary condition name (ex. river reach) 
@@ -678,10 +665,8 @@ class TrackingAnalyzer():
             - modflow river object (internal, recommended)
             - `riv_file` if provided (external, recommended)
             - `mfriv_file` if provided (external, not recommended)
-
         When bc_names are provided and bc ids are given as auxiliary 
         variable in the cbc, mixing ratios can be provided with name as labels 
-
         Parameters
         -----------
         - riv_file (str): path to a external text file (.txt, .csv, ..)
@@ -692,23 +677,19 @@ class TrackingAnalyzer():
                                 456, river_name2
                                 ...
                           Default is None.
-
         - mfriv_file (str, deprecated): path to a external modflow6 river
                                         package file (.riv)
                                         Default is None.
-
         Returns
         -----------
         - reac_dic (dict) : store river reaches with river nodes
                             Format :
                                 {reach_name0: [node_0, node_1, ..],
                                  reach_name1: [node_0, node_1, ..]}
-
         Examples
         -----------
         >>> ta= TrackingAnalyzer(ml, mpsim)
         >>> reach_dic = ta.get_reach_dic()
-
         '''
         # ---- Check input access to river data
         err_msg = 'ERROR : Could not access river data.'
@@ -755,7 +736,8 @@ class TrackingAnalyzer():
 
 
 
-    def compute_mixing_ratio(self, on='river'):
+
+    def compute_mixing_ratio(self, on='river', edp_cell_budget = True, v_weight = True):
         """
         -----------
         Description
@@ -776,23 +758,7 @@ class TrackingAnalyzer():
                                 Format: {'reach_group1' : ['reach1', 'reach2',..],
                                          'reach_group2' : 'reach4'} )
                            Default is 'river'.
-        - orient (str): orientation of the resulting mixing ratio DataFrame.
-                        Can be :
-                            - 'source': the water sources as columns
-                            Format :
-                                           src        river    others
-                                        grpnme                    
-                                           r20     0.129836  0.870164
-                                           r21     0.130381  0.869619
 
-                            - 'particle': the particle groups as columns
-                            Format :
-                                     grpnme          r20      r21
-                                        src                    
-                                      river     0.129836  0.130381
-                                     others     0.870164  0.869619
-
-                            Default is 'source'.
 
         Returns
         -----------
@@ -823,24 +789,37 @@ class TrackingAnalyzer():
         # identify endpoints in river cells
         edp_df['endriv'] = edp_df.node.apply(lambda n: n in self.riv_cells)
 
-        # add river leakage 
-        edp_df['riv_leak'] = 0.
-        edp_df.loc[edp_df.endriv,'riv_leak'] = edp_df.loc[
-                edp_df.endriv,
-                'node'].apply(
-                        lambda n: self.riv_leak_df.loc[n,'q'].sum())
+        if edp_cell_budget:
 
-        # compute cell inflows from cbc
-        edp_df.loc[edp_df.endriv,'rivcell_q'] = edp_df.loc[edp_df.endriv,
-                'node'].apply(self.get_cell_inflows)
+            # add river leakage 
+            edp_df['riv_leak'] = 0.
+            edp_df.loc[edp_df.endriv,'riv_leak'] = edp_df.loc[
+                    edp_df.endriv,
+                    'node'].apply(
+                            lambda n: self.riv_leak_df.loc[n,'q'].sum())
 
-        # add particle velocity and merge value into edp_df
-        v_df = self.get_part_velocity()
-        edp_df.loc[edp_df.particleid,'v'] = v_df.loc[edp_df.particleid,'v']
-        
-        # compute particle mixing ratio
-        edp_df['alpha'] = edp_df['riv_leak']/ (edp_df['riv_leak']+edp_df['rivcell_q'])
-        edp_df.loc[edp_df.alpha.isnull(),'alpha']=0.
+            # compute cell inflows from cbc
+            edp_df.loc[edp_df.endriv,'rivcell_q'] = edp_df.loc[edp_df.endriv,
+                    'node'].apply(self.get_cell_inflows)
+
+            
+            # compute particle mixing ratio
+            edp_df['alpha'] = edp_df['riv_leak']/ (edp_df['riv_leak']+edp_df['rivcell_q'])
+            edp_df.loc[edp_df.alpha.isnull(),'alpha']=0.
+
+        else:
+            # Set alpha to 0 or 1
+            edp_df['alpha'] = edp_df['endriv'].astype(int) # convert True/False to binary 1/0
+
+
+        if v_weight:
+            # add particle velocity and merge value into edp_df
+            v_df = self.get_part_velocity()
+            edp_df.loc[edp_df.particleid,'v'] = v_df.loc[edp_df.particleid,'v']
+
+        else:
+            edp_df['v'] = 1 # Unitary velocity
+
 
         # Grouped weighted average of mixing ratios
         # When they are provided, results are labeled with particle group names 
@@ -872,6 +851,7 @@ class TrackingAnalyzer():
         contrib = edp_df.groupby(
                 ['grpnme', 'src'], dropna=False).apply(
                                     lambda d: np.sum(d.alpha*d.v))
+
         mr = contrib/edp_df.groupby(
                 ['grpnme'], dropna=False).apply(
                                     lambda d: np.sum(d.v))
