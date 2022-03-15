@@ -582,6 +582,7 @@ class TrackingAnalyzer():
         # sort pathline data by rising pid and time 
         spdata = [ pdata[np.lexsort((pdata['particleid'], pdata['time']))] for pdata in alldata]
 
+        '''
         # get index of time = 1.0
         idx = [ int(np.argwhere(pdata['time']==1.)) for  pdata in spdata]
 
@@ -590,7 +591,15 @@ class TrackingAnalyzer():
         dt = np.array([pdata['time'][i+1] -1. for i, pdata in zip(idx,spdata)])
         dx = np.array([ pdata['x'][i+1] - pdata['x'][i]  for i, pdata in zip(idx,spdata)])
         dy = np.array([ pdata['y'][i+1] - pdata['y'][i]  for i, pdata in zip(idx,spdata)])
+
+        '''
+
+        pid = np.array([pdata['particleid'][0]  for pdata in spdata])
+        dt = np.array([pdata['time'][1] for pdata in spdata])
+        dx = np.array([ pdata['x'][1] - pdata['x'][0]  for pdata in spdata])
+        dy = np.array([ pdata['y'][1] - pdata['y'][0]  for pdata in spdata])
         v = np.sqrt(dx**2+dy**2)/dt
+
 
         v_df = pd.DataFrame({'pid':pid,'v':v})
         v_df.set_index('pid', inplace=True)
