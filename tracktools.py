@@ -595,9 +595,9 @@ class TrackingAnalyzer():
         '''
 
         pid = np.array([pdata['particleid'][0]  for pdata in spdata])
-        dt = np.array([pdata['time'][1] for pdata in spdata])
-        dx = np.array([ pdata['x'][1] - pdata['x'][0]  for pdata in spdata])
-        dy = np.array([ pdata['y'][1] - pdata['y'][0]  for pdata in spdata])
+        dt = np.array([pdata['time'][2] -pdata['time'][1] for pdata in spdata])
+        dx = np.array([ pdata['x'][2] - pdata['x'][1]  for pdata in spdata])
+        dy = np.array([ pdata['y'][2] - pdata['y'][1]  for pdata in spdata])
         v = np.sqrt(dx**2+dy**2)/dt
 
 
@@ -751,14 +751,13 @@ class TrackingAnalyzer():
         -----------
         Description
         -----------
-        Compute the mixing ratio between river water and ground water at a 
-        given water production unit
+        Compute the mixing ratio between river and ground water at a sink 
 
         -----------
         Parameters
         -----------
-        - on (str/dict) : information to compute mixing ratios.
-                          Can be a:
+        - on (str/dict) : sets identification method for weak sources  
+                          Can be :
                           - keyword :
                                 - 'river': compute mixing ratios for all river cells
                                 - 'reach': compute mixing rations by river reaches
@@ -768,13 +767,10 @@ class TrackingAnalyzer():
                                          'reach_group2' : 'reach4'} )
                            Default is 'river'.
         
-        - edp_cell_budget (bool): whatever considering the real contribution to 
-                                  the unitary mixing ratio using the volumetric
-                                  leakage flows of river cell's endpoint.
+        - edp_cell_budget (bool): Account for mixing in weak source endpoints
                                   Default is True.
 
-        - v_weight (bool) : whatever weighting the mixing ratio by the arrival
-                            particle's velocity.
+        - v_weight (bool) : Weight particle with velocities 
                             Default is True.
 
         Returns
