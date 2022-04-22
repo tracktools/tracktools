@@ -1,3 +1,0 @@
-
-import helpers
-helpers.run()
