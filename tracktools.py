@@ -852,7 +852,7 @@ class TrackingAnalyzer():
             
             # set river names by reaches
             for rivname, rivnodes in self.rivname_dic.items(): 
-                edp_df.loc[edp_df.node.isin(rivnodes), 'src'] = rivname
+                edp_df.loc[edp_df.node.isin(rivnodes), 'src'] = rivname.upper()
             edp_df['src'].fillna('others', inplace=True)
             
             # aggregate by reaches
