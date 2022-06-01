@@ -1,8 +1,8 @@
                                    MODFLOW 6
                 U.S. GEOLOGICAL SURVEY MODULAR HYDROLOGIC MODEL
-                            VERSION 6.1.0 12/12/2019
+                            VERSION 6.2.2 07/30/2021
 
-   MODFLOW 6 compiled Dec 12 2019 13:30:12 with IFORT compiler (ver. 19.0.5)
+  MODFLOW 6 compiled Mar  4 2022 18:19:04 with GFORTRAN compiler (ver. 6.3.0)
 
 This software has been approved for release by the U.S. Geological 
 Survey (USGS). Although the software has been subjected to rigorous 
@@ -22,16 +22,28 @@ System command used to initiate simulation:
 mf6
 
 MODFLOW was compiled using uniform precision.
+
 Real Variables
-  PRECISION: 15
   KIND: 8
   TINY (smallest non-zero value):    2.225074-308
   HUGE (largest value):    1.797693+308
+  PRECISION: 15
+  BIT SIZE: 64
+
 Integer Variables
   KIND: 4
   HUGE (largest value): 2147483647
-  BIT_SIZE: 32
- 
+  BIT SIZE: 32
+
+Long Integer Variables
+  KIND: 8
+  HUGE (largest value): 9223372036854775807
+  BIT SIZE: 64
+
+Logical Variables
+  KIND: 4
+  BIT SIZE: 32
+
 
  OPENED mfsim.nam
  FILE TYPE:NAM   UNIT 1001   STATUS:OLD                 
@@ -100,53 +112,59 @@ Integer Variables
  PROCESSING IMS OPTIONS
  END OF IMS OPTIONS
  ***UNDER-RELAXATION WILL NOT BE USED***
- 
+
  ***IMS LINEAR SOLVER WILL BE USED***
 
  IMSLINEAR -- UNSTRUCTURED LINEAR SOLUTION PACKAGE, VERSION 8, 04/28/2017
- 
- OUTER ITERATION CONVERGENCE CRITERION     (HCLOSE) =    0.100000E-02
- OUTER ITERATION BOUNDARY FLOW RESIDUAL (RCLOSEBND) =    0.100000E+00
- MAXIMUM NUMBER OF OUTER ITERATIONS        (MXITER) =        25
- SOLVER PRINTOUT INDEX                     (IPRIMS) =         0
- NONLINEAR ITERATION METHOD            (NONLINMETH) =         0
- LINEAR SOLUTION METHOD                   (LINMETH) =         1
+
+ OUTER ITERATION CONVERGENCE CRITERION    (DVCLOSE) =    0.100000E-02
+ MAXIMUM NUMBER OF OUTER ITERATIONS        (MXITER) = 25
+ SOLVER PRINTOUT INDEX                     (IPRIMS) = 0
+ NONLINEAR ITERATION METHOD            (NONLINMETH) = 0
+ LINEAR SOLUTION METHOD                   (LINMETH) = 1
 
        SOLUTION BY THE        CONJUGATE-GRADIENT       METHOD
  ------------------------------------------------------------------
- MAXIMUM OF     25 CALLS OF SOLUTION ROUTINE
- MAXIMUM OF     50 INTERNAL ITERATIONS PER CALL TO SOLUTION ROUTINE
+ MAXIMUM OF 25 CALLS OF SOLUTION ROUTINE
+ MAXIMUM OF 50 INTERNAL ITERATIONS PER CALL TO SOLUTION ROUTINE
  LINEAR ACCELERATION METHOD            = CG        
  MATRIX PRECONDITIONING TYPE           = INCOMPLETE LU       
  MATRIX SCALING APPROACH               = NO SCALING          
  MATRIX REORDERING APPROACH            = ORIGINAL ORDERING        
- NUMBER OF ORTHOGONALIZATIONS          =        0
+ NUMBER OF ORTHOGONALIZATIONS          = 0
  HEAD CHANGE CRITERION FOR CLOSURE     =    0.10000E-02
  RESIDUAL CHANGE CRITERION FOR CLOSURE =    0.10000E+00
- RESIDUAL CONVERGENCE OPTION           =        0
+ RESIDUAL CONVERGENCE OPTION           = 0
  RESIDUAL CONVERGENCE NORM             = INFINITY NORM   
  RELAXATION FACTOR                     =    0.00000E+00
 
 
 
+
+    Solving:  Stress period:     1    Time step:     1
+
 1
-                            STRESS PERIOD NO.    1, LENGTH =   1.000000    
+                            STRESS PERIOD NO. 1, LENGTH =   1.000000    
                             -----------------------------------------------
-
-                              NUMBER OF TIME STEPS =     1
-
-                               MULTIPLIER FOR DELT =     1.000
-
+                            NUMBER OF TIME STEPS = 1
+                            MULTIPLIER FOR DELT =     1.000
                             INITIAL TIME STEP SIZE =   1.000000    
 
- INFORMATION ON VARIABLES STORED IN THE MEMORY MANAGER
- 
- Number of allocated integer variables:   918153
- Number of allocated real variables:    980602
- Allocated memory in megabytes:     11.5174    
- 
+ MEMORY MANAGER TOTAL STORAGE BY DATA TYPE, IN MEGABYTES
+ -------------------------------
+                    ALLOCATED   
+ DATA TYPE           MEMORY     
+ -------------------------------
+ Character        5.66730000E-02
+ Logical          4.40000000E-05
+ Integer          3.5968760     
+ Real             7.8462240     
+ -------------------------------
+ Total            11.499817     
+ -------------------------------
 
- Run end date and time (yyyy/mm/dd hh:mm:ss): 2022/02/14  9:51:29
- Elapsed run time:  0.785 Seconds
 
+
+ Run end date and time (yyyy/mm/dd hh:mm:ss): 2022/05/25 18:32:24
+ Elapsed run time:  0.490 Seconds
  Normal termination of simulation.
