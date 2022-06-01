@@ -581,26 +581,24 @@ class TrackingAnalyzer():
 
         # sort pathline data by rising pid and time 
         spdata = [ pdata[np.lexsort((pdata['particleid'], pdata['time']))] for pdata in alldata]
-
-        '''
-        # get index of time = 1.0
-        idx = [ int(np.argwhere(pdata['time']==1.)) for  pdata in spdata]
-
-        # get particle ids, dt, dx, dy, v
-        pid = np.array([pdata['particleid'][i]  for i, pdata in zip(idx,spdata)])
-        dt = np.array([pdata['time'][i+1] -1. for i, pdata in zip(idx,spdata)])
-        dx = np.array([ pdata['x'][i+1] - pdata['x'][i]  for i, pdata in zip(idx,spdata)])
-        dy = np.array([ pdata['y'][i+1] - pdata['y'][i]  for i, pdata in zip(idx,spdata)])
-
-        '''
-
         pid = np.array([pdata['particleid'][0]  for pdata in spdata])
+        '''
         dt = np.array([pdata['time'][2] -pdata['time'][1] for pdata in spdata])
         dx = np.array([ pdata['x'][2] - pdata['x'][1]  for pdata in spdata])
         dy = np.array([ pdata['y'][2] - pdata['y'][1]  for pdata in spdata])
         v = np.sqrt(dx**2+dy**2)/dt
+        '''
+	# more robust approach to infer particle velocity from pathline data
+	# handles erratic values in time found at some occasions in the mppth file
+        v = []
 
-
+        for pdata in spdata:
+            dx = np.diff(pdata['x'])
+            dy = np.diff(pdata['y'])
+            dt = np.diff(pdata['time'])
+            vs = (np.sqrt(dx**2+dy**2)/dt)
+            v.append( vs[~np.isnan(vs)][0])
+        
         v_df = pd.DataFrame({'pid':pid,'v':v})
         v_df.set_index('pid', inplace=True)
 
