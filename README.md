@@ -29,7 +29,7 @@ Requirements
     - modpath7
     - gridgen
 
-The *Windows* version of these executables are available in the `exe/` folder.
+The *Windows* version of these executables are available in the `bin/` folder.
 
 
 Overview
